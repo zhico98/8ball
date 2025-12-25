@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { Connection, PublicKey } from "@solana/web3.js"
 
 export interface UserProfile {
   username: string
@@ -41,14 +42,10 @@ const defaultProfile: UserProfile = {
   twitter: null,
   telegram: null,
   isPrivate: false,
-  matchHistory: [
-    { id: "1", opponent: "SolShark", opponentAvatar: "SS", result: "win", stake: 0.5, date: "2024-01-15" },
-    { id: "2", opponent: "PoolMaster", opponentAvatar: "PM", result: "loss", stake: 1.0, date: "2024-01-14" },
-    { id: "3", opponent: "8BallKing", opponentAvatar: "8K", result: "win", stake: 2.0, date: "2024-01-13" },
-  ],
-  wins: 24,
-  losses: 12,
-  totalEarnings: 15.5,
+  matchHistory: [],
+  wins: 0,
+  losses: 0,
+  totalEarnings: 0,
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -57,20 +54,40 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [balance, setBalance] = useState(0)
   const [profile, setProfile] = useState<UserProfile | null>(null)
 
+  const fetchWalletBalance = async (pubKey: string) => {
+    try {
+      // Use devnet for development or mainnet-beta for production
+      const connection = new Connection("https://api.devnet.solana.com", "confirmed")
+      const publicKeyObj = new PublicKey(pubKey)
+      const balanceLamports = await connection.getBalance(publicKeyObj)
+      const balanceSOL = balanceLamports / 1_000_000_000
+      setBalance(Number(balanceSOL.toFixed(4)))
+    } catch (error) {
+      console.error("Failed to fetch balance:", error)
+      // Set balance to 0 on error but don't break the app
+      setBalance(0)
+    }
+  }
+
   useEffect(() => {
     const checkConnection = async () => {
       if (typeof window !== "undefined" && (window as any).solana?.isPhantom) {
         try {
           const resp = await (window as any).solana.connect({ onlyIfTrusted: true })
-          setPublicKey(resp.publicKey.toString())
+          const pk = resp.publicKey.toString()
+          setPublicKey(pk)
           setConnected(true)
-          setBalance(Number((Math.random() * 10 + 1).toFixed(4)))
 
-          const savedProfile = localStorage.getItem(`profile_${resp.publicKey.toString()}`)
+          await fetchWalletBalance(pk)
+
+          const savedProfile = localStorage.getItem(`profile_${pk}`)
           if (savedProfile) {
             setProfile(JSON.parse(savedProfile))
           } else {
-            setProfile({ ...defaultProfile, username: `Player_${resp.publicKey.toString().slice(0, 4)}` })
+            setProfile({
+              ...defaultProfile,
+              username: `Player_${pk.slice(0, 4)}`,
+            })
           }
         } catch {
           // Not previously connected
@@ -87,13 +104,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const pk = resp.publicKey.toString()
         setPublicKey(pk)
         setConnected(true)
-        setBalance(Number((Math.random() * 10 + 1).toFixed(4)))
+
+        await fetchWalletBalance(pk)
 
         const savedProfile = localStorage.getItem(`profile_${pk}`)
         if (savedProfile) {
           setProfile(JSON.parse(savedProfile))
         } else {
-          setProfile({ ...defaultProfile, username: `Player_${pk.slice(0, 4)}` })
+          setProfile({
+            ...defaultProfile,
+            username: `Player_${pk.slice(0, 4)}`,
+          })
         }
       } catch (err) {
         console.error("Wallet connection failed:", err)

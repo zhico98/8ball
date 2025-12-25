@@ -122,36 +122,42 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
     setIsPaying(true)
 
     try {
+      if (typeof window === "undefined" || !(window as any).solanaWeb3) {
+        throw new Error("Solana Web3 library not loaded. Please refresh the page.")
+      }
+
       // Get Phantom wallet
       const { solana } = window as any
       if (!solana || !solana.isPhantom) {
-        throw new Error("Phantom wallet not found")
+        throw new Error("Phantom wallet not found. Please install Phantom.")
       }
 
       // Convert USD price to SOL lamports
       const solPrice = Number.parseFloat(pack.priceSOL.replace(" SOL", ""))
       const lamports = Math.floor(solPrice * 1_000_000_000) // Convert SOL to lamports
 
-      // Create transaction
+      const connection = new (window as any).solanaWeb3.Connection("https://api.mainnet-beta.solana.com", "confirmed")
+      const fromPubkey = new (window as any).solanaWeb3.PublicKey(publicKey)
+      const toPubkey = new (window as any).solanaWeb3.PublicKey(RECIPIENT_ADDRESS)
+
       const transaction = new (window as any).solanaWeb3.Transaction().add(
         (window as any).solanaWeb3.SystemProgram.transfer({
-          fromPubkey: new (window as any).solanaWeb3.PublicKey(publicKey),
-          toPubkey: new (window as any).solanaWeb3.PublicKey(RECIPIENT_ADDRESS),
+          fromPubkey,
+          toPubkey,
           lamports,
         }),
       )
 
       // Get recent blockhash
-      const connection = new (window as any).solanaWeb3.Connection("https://api.mainnet-beta.solana.com", "confirmed")
-      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
-      transaction.feePayer = new (window as any).solanaWeb3.PublicKey(publicKey)
+      const { blockhash } = await connection.getLatestBlockhash("confirmed")
+      transaction.recentBlockhash = blockhash
+      transaction.feePayer = fromPubkey
 
-      // Sign and send transaction
-      const signed = await solana.signAndSendTransaction(transaction)
-      console.log("Transaction signature:", signed.signature)
+      const { signature } = await solana.signAndSendTransaction(transaction)
+      console.log("Transaction signature:", signature)
 
       // Wait for confirmation
-      await connection.confirmTransaction(signed.signature, "confirmed")
+      await connection.confirmTransaction(signature, "confirmed")
 
       setIsPaying(false)
       return true
@@ -161,8 +167,10 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
 
       if (error.message?.includes("User rejected")) {
         alert("Payment cancelled")
+      } else if (error.message?.includes("not loaded")) {
+        alert("Please refresh the page and try again.")
       } else {
-        alert(`Payment failed: ${error.message || "Unknown error"}`)
+        alert(`Payment failed: ${error.message || "Please check your wallet and try again."}`)
       }
       return false
     }

@@ -29,8 +29,8 @@ export function HeroSection() {
 
       setStats({
         online: Math.floor(Math.max(50, realStats.online + Math.floor(Math.random() * 15) + 40)),
-        activeMatches: Math.floor(Math.max(5, realStats.activeMatches + Math.floor(Math.random() * 10) + 5)),
-        totalWon: Math.floor(Math.max(850, realStats.totalWon + 850 + Math.floor(Math.random() * 50))),
+        activeMatches: realStats.activeMatches, // Real count, no boost
+        totalWon: 0, // Fixed at 0
         totalPlayers: Math.floor(Math.max(420, realStats.totalPlayers + 420 + Math.floor(Math.random() * 30))),
       })
     }
@@ -42,14 +42,11 @@ export function HeroSection() {
 
       setStats((prev) => {
         const onlineDelta = Math.floor(Math.random() * 7) - 3
-        const matchesDelta = Math.floor(Math.random() * 5) - 2
 
         return {
           online: Math.floor(Math.max(50, Math.min(120, (realStats.online + prev.online + onlineDelta) / 2 + 40))),
-          activeMatches: Math.floor(
-            Math.max(5, Math.min(20, (realStats.activeMatches + prev.activeMatches + matchesDelta) / 2 + 5)),
-          ),
-          totalWon: Math.floor(Math.max(850, realStats.totalWon + 850 + Math.floor(Math.random() * 15))),
+          activeMatches: realStats.activeMatches, // Real count updated every 15s
+          totalWon: 0, // Always 0
           totalPlayers: Math.floor(Math.max(420, realStats.totalPlayers + 420 + Math.floor(Math.random() * 8))),
         }
       })

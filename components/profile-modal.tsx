@@ -252,28 +252,34 @@ export function ProfileModal({ open, onOpenChange, viewProfile, isOwnProfile = t
               <Trophy className="w-4 h-4" />
               Recent Matches
             </h4>
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {displayProfile.matchHistory.slice(0, 5).map((match) => (
-                <div key={match.id} className="flex items-center justify-between p-2 bg-secondary/30 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold">
-                      {match.opponentAvatar}
+            {displayProfile.matchHistory.length > 0 ? (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {displayProfile.matchHistory.slice(0, 5).map((match) => (
+                  <div key={match.id} className="flex items-center justify-between p-2 bg-secondary/30 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold">
+                        {match.opponentAvatar}
+                      </div>
+                      <span className="text-sm text-foreground">{match.opponent}</span>
                     </div>
-                    <span className="text-sm text-foreground">{match.opponent}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground">{match.stake} SOL</span>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                          match.result === "win" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                        }`}
+                      >
+                        {match.result === "win" ? "WIN" : "LOSS"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">{match.stake} SOL</span>
-                    <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                        match.result === "win" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                      }`}
-                    >
-                      {match.result === "win" ? "WIN" : "LOSS"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No matches played yet. Start playing to see your match history!
+              </div>
+            )}
           </div>
 
           {/* Save/Cancel Buttons */}

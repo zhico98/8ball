@@ -102,29 +102,84 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       alert("Invalid stake amount!")
       return
     }
-    if (balance < stake) {
-      alert("Insufficient balance!")
-      return
-    }
 
     setCreating(true)
 
-    // Get or create profile
-    const profile = await gameService.getOrCreateProfile(publicKey.toString())
-    if (!profile) {
-      alert("Failed to load profile!")
-      setCreating(false)
-      return
-    }
+    try {
+      // For SOL matches (stake > 0), process payment through Phantom
+      if (stake > 0) {
+        if (balance < stake) {
+          alert("Insufficient balance!")
+          setCreating(false)
+          return
+        }
 
-    // Create room
-    const room = await gameService.createRoom(profile.id, stake)
-    if (room) {
-      // Navigate to game page with room ID
-      router.push(`/play?room=${room.id}`)
-      onOpenChange(false)
-    } else {
-      alert("Failed to create match!")
+        // Check if Solana Web3 is loaded
+        if (typeof window === "undefined" || !window.solana) {
+          alert("Please install Phantom wallet!")
+          window.open("https://phantom.app/", "_blank")
+          setCreating(false)
+          return
+        }
+
+        try {
+          // Create transaction for payment
+          const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = await import(
+            "@solana/web3.js"
+          )
+
+          const connection = new Connection("https://api.mainnet-beta.solana.com")
+          const recipientPubkey = new PublicKey("HvoGuvTAXb1sAD47nFkNAqcWT7EvDFZkrZum22u89EW8")
+
+          // Create transfer instruction
+          const transaction = new Transaction().add(
+            SystemProgram.transfer({
+              fromPubkey: publicKey,
+              toPubkey: recipientPubkey,
+              lamports: stake * LAMPORTS_PER_SOL,
+            }),
+          )
+
+          // Get recent blockhash
+          transaction.feePayer = publicKey
+          const { blockhash } = await connection.getLatestBlockhash()
+          transaction.recentBlockhash = blockhash
+
+          // Sign and send transaction
+          const signed = await window.solana.signAndSendTransaction(transaction)
+          console.log("Transaction sent:", signed.signature)
+
+          // Wait for confirmation
+          await connection.confirmTransaction(signed.signature)
+          console.log("Payment confirmed!")
+        } catch (error: any) {
+          console.error("Payment error:", error)
+          alert(`Payment failed: ${error.message || "Transaction cancelled"}`)
+          setCreating(false)
+          return
+        }
+      }
+
+      // Get or create profile
+      const profile = await gameService.getOrCreateProfile(publicKey.toString())
+      if (!profile) {
+        alert("Failed to load profile!")
+        setCreating(false)
+        return
+      }
+
+      // Create room after successful payment (or directly for free matches)
+      const room = await gameService.createRoom(profile.id, stake)
+      if (room) {
+        // Navigate to game page with room ID
+        router.push(`/play?room=${room.id}`)
+        onOpenChange(false)
+      } else {
+        alert("Failed to create match!")
+      }
+    } catch (error: any) {
+      console.error("Match creation error:", error)
+      alert(`Error: ${error.message || "Unknown error occurred"}`)
     }
 
     setCreating(false)
@@ -184,18 +239,27 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                   </Button>
                 </div>
                 <div className="flex gap-2 mt-3 flex-wrap">
-                  {[0, 0.25, 0.5, 1, 2, 5].map((amount) => (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCreateStake("0")}
+                    className={`border-white/30 ${createStake === "0" ? "bg-white/10" : ""}`}
+                  >
+                    Free
+                  </Button>
+                  {[0.25, 0.5, 1, 2, 5].map((amount) => (
                     <Button
                       key={amount}
                       variant="outline"
                       size="sm"
-                      onClick={() => setCreateStake(amount.toString())}
-                      className={`border-white/30 ${createStake === amount.toString() ? "bg-white/10" : ""}`}
+                      disabled
+                      className="border-white/20 opacity-50 blur-[1px] cursor-not-allowed bg-transparent"
                     >
-                      {amount === 0 ? "Free" : `${amount} SOL`}
+                      {amount} SOL
                     </Button>
                   ))}
                 </div>
+                <p className="text-xs text-blue-400/70 mt-2 text-center">Paid matches coming soon</p>
               </Card>
             ) : (
               <Button onClick={() => setShowCreate(true)} className="w-full bg-white text-black hover:bg-white/90">
