@@ -33,8 +33,15 @@ export interface Profile {
 }
 
 class GameService {
-  private supabase = createClient()
+  private _supabase: ReturnType<typeof createClient> | null = null
   private roomSubscription: any = null
+
+  private get supabase() {
+    if (!this._supabase) {
+      this._supabase = createClient()
+    }
+    return this._supabase
+  }
 
   async createRoom(hostId: string, stake: number): Promise<GameRoom | null> {
     const { data, error } = await this.supabase

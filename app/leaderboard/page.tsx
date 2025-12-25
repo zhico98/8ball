@@ -18,6 +18,7 @@ interface PlayerWithRank extends Profile {
 export default function LeaderboardPage() {
   const [players, setPlayers] = useState<PlayerWithRank[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadLeaderboard()
@@ -25,16 +26,24 @@ export default function LeaderboardPage() {
 
   const loadLeaderboard = async () => {
     setLoading(true)
-    const topPlayers = await gameService.getTopPlayers(100)
+    try {
+      const topPlayers = await gameService.getTopPlayers(100)
 
-    const playersWithRank = topPlayers.map((player, index) => ({
-      ...player,
-      rank: index + 1,
-      trend: (Math.random() > 0.5 ? "up" : Math.random() > 0.5 ? "down" : "same") as "up" | "down" | "same",
-    }))
+      const playersWithRank = topPlayers.map((player, index) => ({
+        ...player,
+        rank: index + 1,
+        trend: (Math.random() > 0.5 ? "up" : Math.random() > 0.5 ? "down" : "same") as "up" | "down" | "same",
+      }))
 
-    setPlayers(playersWithRank)
-    setLoading(false)
+      setPlayers(playersWithRank)
+      setError(null)
+    } catch (err) {
+      console.error("Failed to load leaderboard:", err)
+      setError("Unable to connect to database. Please add Supabase environment variables in Vercel Settings.")
+      setPlayers([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getRankIcon = (rank: number) => {
@@ -77,6 +86,10 @@ export default function LeaderboardPage() {
               <div className="flex justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-white" />
               </div>
+            ) : error ? (
+              <Card className="p-12 text-center">
+                <p className="text-muted-foreground mb-2">{error}</p>
+              </Card>
             ) : players.length === 0 ? (
               <Card className="p-12 text-center">
                 <p className="text-muted-foreground">No players yet. Be the first to play!</p>
