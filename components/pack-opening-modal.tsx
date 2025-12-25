@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Wallet, Sparkles, X, Loader2 } from "lucide-react"
 import { useWallet } from "@/lib/wallet-context"
 import { useInventory } from "@/lib/inventory-context"
+import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js"
 
 interface PackItem {
   name: string
@@ -77,6 +78,7 @@ const packItems: Record<string, PackItem[]> = {
 }
 
 const RECIPIENT_ADDRESS = "HvoGuvTAXb1sAD47nFkNAqcWT7EvDFZkrZum22u89EW8"
+const RPC_ENDPOINT = "https://api.devnet.solana.com"
 
 export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProps) {
   const { connected, connect, publicKey } = useWallet()
@@ -116,59 +118,65 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
 
   const processSolanaPayment = async (): Promise<boolean> => {
     if (!connected || !publicKey || !pack) {
+      console.log("[v0] Payment check failed: connected=", connected, "publicKey=", publicKey, "pack=", !!pack)
       return false
     }
 
     setIsPaying(true)
 
     try {
-      if (typeof window === "undefined" || !(window as any).solanaWeb3) {
-        throw new Error("Solana Web3 library not loaded. Please refresh the page.")
-      }
+      console.log("[v0] Processing payment for pack:", pack.name)
 
-      // Get Phantom wallet
       const { solana } = window as any
       if (!solana || !solana.isPhantom) {
-        throw new Error("Phantom wallet not found. Please install Phantom.")
+        throw new Error("Phantom wallet not found. Please install Phantom wallet extension.")
       }
 
-      // Convert USD price to SOL lamports
+      const connection = new Connection(RPC_ENDPOINT, "confirmed")
+
       const solPrice = Number.parseFloat(pack.priceSOL.replace(" SOL", ""))
-      const lamports = Math.floor(solPrice * 1_000_000_000) // Convert SOL to lamports
+      const lamports = Math.floor(solPrice * LAMPORTS_PER_SOL)
 
-      const connection = new (window as any).solanaWeb3.Connection("https://api.mainnet-beta.solana.com", "confirmed")
-      const fromPubkey = new (window as any).solanaWeb3.PublicKey(publicKey)
-      const toPubkey = new (window as any).solanaWeb3.PublicKey(RECIPIENT_ADDRESS)
+      console.log("[v0] Payment amount:", solPrice, "SOL (", lamports, "lamports)")
 
-      const transaction = new (window as any).solanaWeb3.Transaction().add(
-        (window as any).solanaWeb3.SystemProgram.transfer({
+      const fromPubkey = new PublicKey(publicKey)
+      const toPubkey = new PublicKey(RECIPIENT_ADDRESS)
+
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
           fromPubkey,
           toPubkey,
           lamports,
         }),
       )
 
-      // Get recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash("confirmed")
+      console.log("[v0] Getting recent blockhash...")
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
       transaction.recentBlockhash = blockhash
       transaction.feePayer = fromPubkey
 
+      console.log("[v0] Requesting signature from Phantom...")
       const { signature } = await solana.signAndSendTransaction(transaction)
-      console.log("Transaction signature:", signature)
+      console.log("[v0] Transaction signature:", signature)
 
-      // Wait for confirmation
-      await connection.confirmTransaction(signature, "confirmed")
+      console.log("[v0] Waiting for confirmation...")
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      })
+      console.log("[v0] Payment confirmed!")
 
       setIsPaying(false)
       return true
     } catch (error: any) {
-      console.error("Payment failed:", error)
+      console.error("[v0] Payment failed:", error)
       setIsPaying(false)
 
-      if (error.message?.includes("User rejected")) {
-        alert("Payment cancelled")
-      } else if (error.message?.includes("not loaded")) {
-        alert("Please refresh the page and try again.")
+      if (error.message?.includes("User rejected") || error.code === 4001) {
+        alert("Payment cancelled by user")
+      } else if (error.message?.includes("Phantom")) {
+        alert(error.message)
       } else {
         alert(`Payment failed: ${error.message || "Please check your wallet and try again."}`)
       }
@@ -182,18 +190,19 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
       return
     }
 
-    // Process payment first
+    console.log("[v0] Starting pack opening process")
+
     const paymentSuccess = await processSolanaPayment()
     if (!paymentSuccess) {
+      console.log("[v0] Payment failed, aborting pack opening")
       return
     }
 
+    console.log("[v0] Payment successful, opening pack...")
     setIsOpening(true)
 
-    // Simulate opening animation
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Random item selection based on chances
     const rand = Math.random() * 100
     let cumulative = 0
     let selectedItem = items[0]
@@ -206,11 +215,11 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
       }
     }
 
+    console.log("[v0] Won item:", selectedItem.name, "rarity:", selectedItem.rarity)
     setWonItem(selectedItem)
     setShowResult(true)
     setIsOpening(false)
 
-    // Add to inventory
     addItem({
       id: `${Date.now()}-${Math.random()}`,
       name: selectedItem.name,
@@ -274,7 +283,6 @@ export function PackOpeningModal({ isOpen, onClose, pack }: PackOpeningModalProp
               </div>
             </div>
           ) : isOpening || isPaying ? (
-            // Opening Animation
             <div className="text-center py-16">
               <div className="w-32 h-32 mx-auto rounded-2xl border-2 border-white/30 bg-secondary/50 flex items-center justify-center mb-6 animate-spin">
                 <Loader2 className="w-16 h-16 text-white" />

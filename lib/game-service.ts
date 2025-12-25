@@ -32,9 +32,43 @@ export interface Profile {
   last_seen: string
 }
 
+const BOT_NAMES = [
+  "Alex_Hunter",
+  "Jordan_Smith",
+  "Taylor_Brown",
+  "Morgan_Davis",
+  "Casey_Wilson",
+  "Riley_Martinez",
+  "Avery_Anderson",
+  "Quinn_Thomas",
+  "Cameron_Jackson",
+  "Skyler_White",
+  "Blake_Harris",
+  "Drew_Martin",
+  "Parker_Thompson",
+  "Reese_Garcia",
+  "Hayden_Rodriguez",
+  "Dakota_Lee",
+  "Emerson_Walker",
+  "Finley_Hall",
+  "Sage_Allen",
+  "Rowan_Young",
+  "Phoenix_King",
+  "River_Wright",
+  "Kendall_Lopez",
+  "Charlie_Hill",
+  "Sam_Green",
+  "Jesse_Adams",
+  "Jaime_Baker",
+  "Micah_Nelson",
+  "Dylan_Carter",
+  "Logan_Mitchell",
+]
+
 class GameService {
   private _supabase: ReturnType<typeof createClient> | null = null
   private roomSubscription: any = null
+  private botMatchTimers: Map<string, NodeJS.Timeout> = new Map()
 
   private get supabase() {
     if (!this._supabase) {
@@ -62,6 +96,9 @@ class GameService {
       return null
     }
 
+    console.log("[v0] Starting bot match timer for room:", data.id)
+    this.startBotMatchTimer(data.id)
+
     return data
   }
 
@@ -87,6 +124,12 @@ class GameService {
   }
 
   async joinRoom(roomId: string, guestId: string): Promise<boolean> {
+    if (this.botMatchTimers.has(roomId)) {
+      console.log("[v0] Real player joining, canceling bot timer")
+      clearTimeout(this.botMatchTimers.get(roomId))
+      this.botMatchTimers.delete(roomId)
+    }
+
     const { error } = await this.supabase
       .from("game_rooms")
       .update({
@@ -170,41 +213,57 @@ class GameService {
   }
 
   async getOrCreateProfile(walletAddress: string, username?: string): Promise<Profile | null> {
-    const { data: existing } = await this.supabase
-      .from("profiles")
-      .select("*")
-      .eq("wallet_address", walletAddress)
-      .single()
+    try {
+      console.log("[v0] Fetching profile for wallet:", walletAddress)
 
-    if (existing) {
-      await this.supabase
+      const { data: existing, error: fetchError } = await this.supabase
         .from("profiles")
-        .update({ is_online: true, last_seen: new Date().toISOString() })
-        .eq("id", existing.id)
+        .select("*")
+        .eq("wallet_address", walletAddress)
+        .single()
 
-      return existing
-    }
+      if (fetchError && fetchError.code !== "PGRST116") {
+        // PGRST116 is "not found" which is expected for new users
+        console.error("[v0] Error fetching profile:", fetchError)
+        throw new Error(`Database error: ${fetchError.message}`)
+      }
 
-    const { data, error } = await this.supabase
-      .from("profiles")
-      .insert({
-        wallet_address: walletAddress,
-        username: username || walletAddress.slice(0, 8),
-        wins: 0,
-        losses: 0,
-        total_earnings: 0,
-        total_wagered: 0,
-        is_online: true,
-      })
-      .select()
-      .single()
+      if (existing) {
+        console.log("[v0] Profile found, updating online status")
+        await this.supabase
+          .from("profiles")
+          .update({ is_online: true, last_seen: new Date().toISOString() })
+          .eq("id", existing.id)
 
-    if (error) {
-      console.error("Error creating profile:", error)
+        return existing
+      }
+
+      console.log("[v0] Creating new profile")
+      const { data, error } = await this.supabase
+        .from("profiles")
+        .insert({
+          wallet_address: walletAddress,
+          username: username || walletAddress.slice(0, 8),
+          wins: 0,
+          losses: 0,
+          total_earnings: 0,
+          total_wagered: 0,
+          is_online: true,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error("[v0] Error creating profile:", error)
+        throw new Error(`Failed to create profile: ${error.message}`)
+      }
+
+      console.log("[v0] Profile created successfully")
+      return data
+    } catch (error: any) {
+      console.error("[v0] getOrCreateProfile failed:", error)
       return null
     }
-
-    return data
   }
 
   async getPlatformStats(): Promise<{ online: number; activeMatches: number; totalWon: number; totalPlayers: number }> {
@@ -312,6 +371,94 @@ class GameService {
     ])
 
     return true
+  }
+
+  private async getOrCreateBotProfile(): Promise<Profile | null> {
+    try {
+      const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+      const botWalletAddress = `bot_${botName.toLowerCase()}_${Date.now()}`
+
+      console.log("[v0] Creating bot profile:", botName)
+
+      const { data, error } = await this.supabase
+        .from("profiles")
+        .insert({
+          wallet_address: botWalletAddress,
+          username: botName,
+          wins: Math.floor(Math.random() * 50) + 10,
+          losses: Math.floor(Math.random() * 30) + 5,
+          total_earnings: Math.random() * 100,
+          total_wagered: Math.random() * 200,
+          is_online: true,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error("[v0] Error creating bot profile:", error)
+        return null
+      }
+
+      return data
+    } catch (error) {
+      console.error("[v0] getOrCreateBotProfile failed:", error)
+      return null
+    }
+  }
+
+  private startBotMatchTimer(roomId: string) {
+    if (this.botMatchTimers.has(roomId)) {
+      clearTimeout(this.botMatchTimers.get(roomId))
+    }
+
+    const timer = setTimeout(async () => {
+      console.log("[v0] Bot match timer expired for room:", roomId)
+      await this.addBotToRoom(roomId)
+      this.botMatchTimers.delete(roomId)
+    }, 15000)
+
+    this.botMatchTimers.set(roomId, timer)
+  }
+
+  private async addBotToRoom(roomId: string) {
+    try {
+      const { data: room, error: roomError } = await this.supabase
+        .from("game_rooms")
+        .select("*")
+        .eq("id", roomId)
+        .eq("status", "waiting")
+        .single()
+
+      if (roomError || !room) {
+        console.log("[v0] Room not found or already started:", roomId)
+        return
+      }
+
+      const botProfile = await this.getOrCreateBotProfile()
+      if (!botProfile) {
+        console.error("[v0] Failed to create bot profile")
+        return
+      }
+
+      const { error: updateError } = await this.supabase
+        .from("game_rooms")
+        .update({
+          guest_id: botProfile.id,
+          status: "playing",
+          started_at: new Date().toISOString(),
+        })
+        .eq("id", roomId)
+        .eq("status", "waiting")
+
+      if (updateError) {
+        console.error("[v0] Error adding bot to room:", updateError)
+        return
+      }
+
+      console.log("[v0] Bot successfully added to room:", roomId, "Bot:", botProfile.username)
+    } catch (error) {
+      console.error("[v0] addBotToRoom failed:", error)
+    }
   }
 }
 

@@ -73,22 +73,29 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       return
     }
 
-    // Get or create profile
-    const profile = await gameService.getOrCreateProfile(publicKey.toString())
-    if (!profile) {
-      alert("Failed to load profile!")
-      return
-    }
+    try {
+      // Get or create profile
+      const profile = await gameService.getOrCreateProfile(publicKey.toString())
+      if (!profile) {
+        alert(
+          "Unable to connect to database. Please make sure environment variables are configured and redeploy the app.",
+        )
+        return
+      }
 
-    // Join the room
-    const success = await gameService.joinRoom(match.id, profile.id)
-    if (success) {
-      // Navigate to game page with room ID
-      router.push(`/play?room=${match.id}`)
-      onOpenChange(false)
-    } else {
-      alert("Failed to join match. It may have been taken by another player.")
-      loadAvailableRooms()
+      // Join the room
+      const success = await gameService.joinRoom(match.id, profile.id)
+      if (success) {
+        // Navigate to game page with room ID
+        router.push(`/play?room=${match.id}`)
+        onOpenChange(false)
+      } else {
+        alert("Failed to join match. It may have been taken by another player.")
+        loadAvailableRooms()
+      }
+    } catch (error: any) {
+      console.error("Join match error:", error)
+      alert(`Error: ${error.message || "Please check database connection and try again"}`)
     }
   }
 
@@ -163,7 +170,7 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       // Get or create profile
       const profile = await gameService.getOrCreateProfile(publicKey.toString())
       if (!profile) {
-        alert("Failed to load profile!")
+        alert("Unable to connect to database. Please check Supabase configuration and redeploy.")
         setCreating(false)
         return
       }
@@ -175,11 +182,13 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
         router.push(`/play?room=${room.id}`)
         onOpenChange(false)
       } else {
-        alert("Failed to create match!")
+        alert("Failed to create match. Please check database connection.")
       }
     } catch (error: any) {
       console.error("Match creation error:", error)
-      alert(`Error: ${error.message || "Unknown error occurred"}`)
+      alert(
+        `Error: ${error.message || "Database connection failed. Please redeploy the app with proper environment variables."}`,
+      )
     }
 
     setCreating(false)
