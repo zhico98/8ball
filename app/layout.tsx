@@ -40,9 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <head>
-        <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
-      </head>
+      <head></head>
       <body className="font-sans antialiased">
         <WalletProvider>
           <InventoryProvider>{children}</InventoryProvider>
