@@ -8,6 +8,7 @@ export interface GameRoom {
   status: "waiting" | "playing" | "finished"
   created_at: string
   is_bot: boolean
+  willDisappear?: boolean // Mark which ones will disappear
 }
 
 export interface Profile {
@@ -21,26 +22,30 @@ export interface Profile {
 }
 
 const BOT_NAMES = [
-  "Alex_Hunter",
-  "Jordan_Smith",
-  "Taylor_Brown",
-  "Morgan_Davis",
-  "Casey_Wilson",
-  "Riley_Martinez",
-  "Avery_Anderson",
-  "Quinn_Thomas",
-  "Cameron_Jackson",
-  "Skyler_White",
-  "Blake_Harris",
-  "Drew_Martin",
-  "Parker_Thompson",
-  "Reese_Garcia",
-  "Hayden_Rodriguez",
-  "Dakota_Lee",
-  "Emerson_Walker",
-  "Finley_Hall",
-  "Sage_Allen",
-  "Rowan_Young",
+  "F It Be Well",
+  "Mr wizz",
+  "rai",
+  "Joqlyn",
+  "Bayuzii",
+  "Shadow",
+  "kata",
+  "Kingmaker",
+  "tncr.eth",
+  "MasEmon",
+  "Loxous",
+  "Mike",
+  "Masih Miskin",
+  "Haneul",
+  "Frontier",
+  "Vello",
+  "orsralojui",
+  "arsenioo256.ink",
+  "Verita y Mezcal",
+  "Johnny Bravo",
+  "Saazcom",
+  "suekuer",
+  "ajungyoga",
+  "pickypicky",
 ]
 
 class GameService {
@@ -48,13 +53,26 @@ class GameService {
   private roomSubscriptions: Map<string, any> = new Map()
 
   generateFakeMatches(): GameRoom[] {
-    const count = Math.floor(Math.random() * 3) + 3 // 3-5 matches
+    const count = Math.floor(Math.random() * 4) + 2 // 2-5 matches
     const matches: GameRoom[] = []
+    const usedNames: Set<string> = new Set()
 
     for (let i = 0; i < count; i++) {
-      const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
-      const stake = [0, 0, 0, 0.25, 0.5][Math.floor(Math.random() * 5)] // Mostly free matches
+      // Get unique bot name
+      let botName: string
+      let attempts = 0
+      do {
+        botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+        attempts++
+      } while (usedNames.has(botName) && attempts < 50)
+
+      if (usedNames.has(botName)) continue // Skip if couldn't find unique name
+
+      usedNames.add(botName)
+
+      const stake = 0 // All free matches
       const minutesAgo = Math.floor(Math.random() * 10) + 1
+      const willDisappear = Math.random() < 0.4 // 40% chance to disappear
 
       matches.push({
         id: `fake_${Date.now()}_${i}`,
@@ -66,7 +84,8 @@ class GameService {
         status: "waiting",
         created_at: new Date(Date.now() - minutesAgo * 60000).toISOString(),
         is_bot: true,
-      })
+        willDisappear, // Mark which ones will disappear
+      } as any)
     }
 
     return matches
@@ -115,7 +134,13 @@ class GameService {
     // Only add bot if room is still waiting
     if (room.status !== "waiting") return
 
-    const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+    // Get unique bot name that's not the host
+    let botName: string
+    let attempts = 0
+    do {
+      botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+      attempts++
+    } while (botName === room.host_username && attempts < 50)
 
     room.guest_id = `bot_${Date.now()}`
     room.guest_username = botName

@@ -1269,16 +1269,45 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
     <div className="flex flex-col items-center relative">
       {showWarning && (
         <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="rounded-lg border bg-card px-4 py-3 shadow-lg">
+          <div className="relative bg-background/95 backdrop-blur-sm border border-border rounded-lg px-4 py-2 shadow-lg">
+            <div className="absolute -left-1 -top-1 w-3 h-3 bg-primary rounded-full animate-ping" />
             <div className="flex items-center gap-2">
-              <div className="relative flex h-2 w-2 rounded-full bg-muted-foreground">
-                <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-muted-foreground/50 opacity-75"></span>
-              </div>
-              <p className="text-sm font-medium">10 seconds left</p>
+              <div className="w-2 h-2 bg-primary rounded-full" />
+              <span className="text-sm font-medium text-muted-foreground">10 seconds left</span>
             </div>
           </div>
         </div>
       )}
+
+      <div className="fixed top-4 right-4 z-40">
+        <AlertDialog open={showQuitDialog} onOpenChange={setShowQuitDialog}>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="w-8 h-8 border-white/30 bg-background/50 backdrop-blur-sm hover:bg-white/10"
+              title="Close game"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Quit Game?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Quitting an active game will result in a <strong>1 minute penalty</strong>. You won't be able to join or
+                create new games during this time.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Continue Playing</AlertDialogCancel>
+              <AlertDialogAction onClick={handleQuit} className="bg-destructive hover:bg-destructive/90">
+                Quit Game
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
 
       {isMinimized && (
         <div
@@ -1340,7 +1369,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
                 </div>
                 <div className="flex flex-col items-end">
                   <div className="flex items-center gap-1">
-                    <span className="text-sm font-medium text-white">{opponentName}</span>
+                    <span className="text-sm font-medium text-white">{isTraining ? "Bot" : opponentName}</span>
                     {opponentType && <span className="text-xs text-muted-foreground">{opponentType}</span>}
                   </div>
                   {!isTraining && room && currentPlayer === 2 && (
@@ -1348,39 +1377,9 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
                   )}
                 </div>
                 <div
-                  className={`w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs ${currentPlayer === 2 ? "ring-2 ring-white" : ""}`}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs ${currentPlayer === 2 ? "ring-2 ring-white" : ""} bg-secondary`}
                 >
-                  {opponentName?.slice(0, 2).toUpperCase() || "P2"}
-                </div>
-
-                <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
-                  <AlertDialog open={showQuitDialog} onOpenChange={setShowQuitDialog}>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="w-7 h-7 border-white/30 bg-transparent hover:bg-white/10"
-                        title="Close game"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Quit Game?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Quitting an active game will result in a <strong>1 minute penalty</strong>. You won't be able
-                          to join or create new games during this time.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Stay in game</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleQuit} className="bg-destructive hover:bg-destructive/90">
-                          Quit anyway
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  {isTraining ? "🤖" : opponentName?.slice(0, 2).toUpperCase() || "P2"}
                 </div>
               </div>
             </div>
@@ -1421,9 +1420,9 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Stay in game</AlertDialogCancel>
+            <AlertDialogCancel>Continue Playing</AlertDialogCancel>
             <AlertDialogAction onClick={handleQuit} className="bg-destructive hover:bg-destructive/90">
-              Quit anyway
+              Quit Game
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

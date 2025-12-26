@@ -26,11 +26,17 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   const [creating, setCreating] = useState(false)
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null)
   const [penaltyInfo, setPenaltyInfo] = useState<{ hasPenalty: boolean; remainingTime: number } | null>(null)
+  const [disappearTimers, setDisappearTimers] = useState<Map<string, any>>(new Map())
+  const [disappearingMatches, setDisappearingMatches] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (open) {
       loadFakeMatches()
       checkPenalty()
+    } else {
+      disappearTimers.forEach((timer) => clearTimeout(timer))
+      setDisappearTimers(new Map())
+      setDisappearingMatches(new Set())
     }
   }, [open, publicKey])
 
@@ -64,7 +70,7 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   const loadFakeMatches = () => {
     const fakeRooms = gameService.generateFakeMatches()
 
-    const transformed = fakeRooms.map((room) => ({
+    const transformed = fakeRooms.map((room: any) => ({
       id: room.id,
       player: {
         name: room.host_username,
@@ -75,9 +81,31 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       stake: room.stake,
       createdAt: getTimeAgo(room.created_at),
       timeLeft: "5:00",
+      willDisappear: room.willDisappear,
     }))
 
     setAvailableRooms(transformed.filter((m) => m.stake === 0))
+
+    const newTimers = new Map()
+    transformed.forEach((match: any) => {
+      if (match.willDisappear) {
+        const delay = Math.floor(Math.random() * 13000) + 2000 // 2-15 seconds
+        const timer = setTimeout(() => {
+          setDisappearingMatches((prev) => new Set(prev).add(match.id))
+
+          setTimeout(() => {
+            setAvailableRooms((prev) => prev.filter((m) => m.id !== match.id))
+            setDisappearingMatches((prev) => {
+              const newSet = new Set(prev)
+              newSet.delete(match.id)
+              return newSet
+            })
+          }, 1000)
+        }, delay)
+        newTimers.set(match.id, timer)
+      }
+    })
+    setDisappearTimers(newTimers)
   }
 
   const getTimeAgo = (timestamp: string) => {
@@ -111,6 +139,16 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
         roomData.status = "playing"
         roomData.is_bot = true
         localStorage.setItem(`room_${room.id}`, JSON.stringify(roomData))
+      }
+
+      const timer = disappearTimers.get(match.id)
+      if (timer) {
+        clearTimeout(timer)
+        setDisappearTimers((prev) => {
+          const newMap = new Map(prev)
+          newMap.delete(match.id)
+          return newMap
+        })
       }
 
       router.push(`/play?room=${room.id}`)
@@ -261,54 +299,64 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                 <Badge variant="secondary">{availableRooms.length} waiting</Badge>
               </div>
               <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2">
-                {availableRooms.map((match) => (
-                  <Card
-                    key={match.id}
-                    className="p-4 bg-secondary/30 border-border hover:border-white/30 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold">
-                          {match.player.avatar}
+                {availableRooms.map((match) => {
+                  const isDisappearing = disappearingMatches.has(match.id)
+
+                  return (
+                    <Card
+                      key={match.id}
+                      className={`p-4 bg-secondary/30 border-border hover:border-white/30 transition-all duration-1000 ${
+                        isDisappearing ? "opacity-0 blur-lg" : "opacity-100 blur-0"
+                      }`}
+                      style={{
+                        transitionProperty: "opacity, filter",
+                        transitionTimingFunction: "ease-in-out",
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold">
+                            {match.player.avatar}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-foreground">{match.player.name}</span>
+                              <Badge variant="outline" className="text-xs border-white/30">
+                                #{match.player.rank}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Users className="w-3 h-3" />
+                                {match.player.wins} wins
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {match.createdAt}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-foreground">{match.player.name}</span>
-                            <Badge variant="outline" className="text-xs border-white/30">
-                              #{match.player.rank}
-                            </Badge>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="flex items-center gap-1 justify-end">
+                              <span className="text-lg font-bold text-white">Free</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{match.timeLeft}</span>
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {match.player.wins} wins
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {match.createdAt}
-                            </span>
-                          </div>
+                          <Button
+                            onClick={() => handleJoin(match)}
+                            className="bg-white text-black hover:bg-white/90"
+                            disabled={joiningRoomId === match.id || penaltyInfo?.hasPenalty || isDisappearing}
+                          >
+                            <Zap className="w-4 h-4 mr-2" />
+                            {joiningRoomId === match.id ? "Joining..." : "Join"}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <div className="flex items-center gap-1 justify-end">
-                            <span className="text-lg font-bold text-white">Free</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{match.timeLeft}</span>
-                        </div>
-                        <Button
-                          onClick={() => handleJoin(match)}
-                          className="bg-white text-black hover:bg-white/90"
-                          disabled={joiningRoomId === match.id || penaltyInfo?.hasPenalty}
-                        >
-                          <Zap className="w-4 h-4 mr-2" />
-                          {joiningRoomId === match.id ? "Joining..." : "Join"}
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  )
+                })}
               </div>
             </div>
           </div>
