@@ -1,35 +1,23 @@
-import { createClient } from "./supabase/client"
-
 export interface GameRoom {
   id: string
   host_id: string
+  host_username: string
   guest_id: string | null
+  guest_username: string | null
   stake: number
   status: "waiting" | "playing" | "finished"
-  current_turn: "host" | "guest"
-  host_type: "solids" | "stripes" | null
-  guest_type: "solids" | "stripes" | null
-  host_pocketed: number[]
-  guest_pocketed: number[]
-  game_state: any
-  winner_id: string | null
   created_at: string
-  started_at: string | null
-  finished_at: string | null
-  updated_at: string
+  is_bot: boolean
 }
 
 export interface Profile {
   id: string
   wallet_address: string
   username: string
-  avatar_url: string | null
   wins: number
   losses: number
   total_earnings: number
-  total_wagered: number
-  is_online: boolean
-  last_seen: string
+  penalty_until?: string // ISO timestamp when penalty ends
 }
 
 const BOT_NAMES = [
@@ -53,411 +41,212 @@ const BOT_NAMES = [
   "Finley_Hall",
   "Sage_Allen",
   "Rowan_Young",
-  "Phoenix_King",
-  "River_Wright",
-  "Kendall_Lopez",
-  "Charlie_Hill",
-  "Sam_Green",
-  "Jesse_Adams",
-  "Jaime_Baker",
-  "Micah_Nelson",
-  "Dylan_Carter",
-  "Logan_Mitchell",
 ]
 
 class GameService {
-  private _supabase: ReturnType<typeof createClient> | null = null
-  private roomSubscription: any = null
-  private botMatchTimers: Map<string, NodeJS.Timeout> = new Map()
+  private botMatchTimers: Map<string, any> = new Map()
+  private roomSubscriptions: Map<string, any> = new Map()
 
-  private get supabase() {
-    if (!this._supabase) {
-      this._supabase = createClient()
-    }
-    return this._supabase
-  }
+  generateFakeMatches(): GameRoom[] {
+    const count = Math.floor(Math.random() * 3) + 3 // 3-5 matches
+    const matches: GameRoom[] = []
 
-  async createRoom(hostId: string, stake: number): Promise<GameRoom | null> {
-    const { data, error } = await this.supabase
-      .from("game_rooms")
-      .insert({
-        host_id: hostId,
-        stake: stake,
-        status: "waiting",
-        current_turn: "host",
-        host_pocketed: [],
-        guest_pocketed: [],
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Error creating room:", error)
-      return null
-    }
-
-    console.log("[v0] Starting bot match timer for room:", data.id)
-    this.startBotMatchTimer(data.id)
-
-    return data
-  }
-
-  async getAvailableRooms(): Promise<GameRoom[]> {
-    const { data, error } = await this.supabase
-      .from("game_rooms")
-      .select(
-        `
-        *,
-        host:profiles!game_rooms_host_id_fkey(id, username, avatar_url, wins)
-      `,
-      )
-      .eq("status", "waiting")
-      .order("created_at", { ascending: false })
-      .limit(10)
-
-    if (error) {
-      console.error("Error fetching rooms:", error)
-      return []
-    }
-
-    return data || []
-  }
-
-  async joinRoom(roomId: string, guestId: string): Promise<boolean> {
-    if (this.botMatchTimers.has(roomId)) {
-      console.log("[v0] Real player joining, canceling bot timer")
-      clearTimeout(this.botMatchTimers.get(roomId))
-      this.botMatchTimers.delete(roomId)
-    }
-
-    const { error } = await this.supabase
-      .from("game_rooms")
-      .update({
-        guest_id: guestId,
-        status: "playing",
-        started_at: new Date().toISOString(),
-      })
-      .eq("id", roomId)
-      .eq("status", "waiting")
-
-    if (error) {
-      console.error("Error joining room:", error)
-      return false
-    }
-
-    return true
-  }
-
-  async getRoom(roomId: string): Promise<GameRoom | null> {
-    const { data, error } = await this.supabase
-      .from("game_rooms")
-      .select(
-        `
-        *,
-        host:profiles!game_rooms_host_id_fkey(id, username, avatar_url, wins),
-        guest:profiles!game_rooms_guest_id_fkey(id, username, avatar_url, wins)
-      `,
-      )
-      .eq("id", roomId)
-      .single()
-
-    if (error) {
-      console.error("Error fetching room:", error)
-      return null
-    }
-
-    return data
-  }
-
-  async updateGameState(
-    roomId: string,
-    updates: {
-      game_state?: any
-      current_turn?: "host" | "guest"
-      host_type?: "solids" | "stripes" | null
-      guest_type?: "solids" | "stripes" | null
-      host_pocketed?: number[]
-      guest_pocketed?: number[]
-      status?: string
-      winner_id?: string | null
-    },
-  ): Promise<boolean> {
-    const { error } = await this.supabase.from("game_rooms").update(updates).eq("id", roomId)
-
-    if (error) {
-      console.error("Error updating game state:", error)
-      return false
-    }
-
-    return true
-  }
-
-  subscribeToRoom(roomId: string, callback: (room: GameRoom) => void) {
-    this.roomSubscription = this.supabase
-      .channel(`room:${roomId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "game_rooms", filter: `id=eq.${roomId}` },
-        (payload) => {
-          callback(payload.new as GameRoom)
-        },
-      )
-      .subscribe()
-  }
-
-  unsubscribeFromRoom() {
-    if (this.roomSubscription) {
-      this.roomSubscription.unsubscribe()
-      this.roomSubscription = null
-    }
-  }
-
-  async getOrCreateProfile(walletAddress: string, username?: string): Promise<Profile | null> {
-    try {
-      console.log("[v0] Fetching profile for wallet:", walletAddress)
-
-      const { data: existing, error: fetchError } = await this.supabase
-        .from("profiles")
-        .select("*")
-        .eq("wallet_address", walletAddress)
-        .single()
-
-      if (fetchError && fetchError.code !== "PGRST116") {
-        // PGRST116 is "not found" which is expected for new users
-        console.error("[v0] Error fetching profile:", fetchError)
-        throw new Error(`Database error: ${fetchError.message}`)
-      }
-
-      if (existing) {
-        console.log("[v0] Profile found, updating online status")
-        await this.supabase
-          .from("profiles")
-          .update({ is_online: true, last_seen: new Date().toISOString() })
-          .eq("id", existing.id)
-
-        return existing
-      }
-
-      console.log("[v0] Creating new profile")
-      const { data, error } = await this.supabase
-        .from("profiles")
-        .insert({
-          wallet_address: walletAddress,
-          username: username || walletAddress.slice(0, 8),
-          wins: 0,
-          losses: 0,
-          total_earnings: 0,
-          total_wagered: 0,
-          is_online: true,
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error("[v0] Error creating profile:", error)
-        throw new Error(`Failed to create profile: ${error.message}`)
-      }
-
-      console.log("[v0] Profile created successfully")
-      return data
-    } catch (error: any) {
-      console.error("[v0] getOrCreateProfile failed:", error)
-      return null
-    }
-  }
-
-  async getPlatformStats(): Promise<{ online: number; activeMatches: number; totalWon: number; totalPlayers: number }> {
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-    const { count: onlineCount } = await this.supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true })
-      .eq("is_online", true)
-      .gte("last_seen", fiveMinutesAgo)
-
-    const { count: activeMatches } = await this.supabase
-      .from("game_rooms")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "playing")
-
-    const { count: totalPlayers } = await this.supabase.from("profiles").select("*", { count: "exact", head: true })
-
-    const { data: earningsData } = await this.supabase.from("profiles").select("total_earnings")
-
-    const totalWon = earningsData?.reduce((sum, p) => sum + (p.total_earnings || 0), 0) || 0
-
-    return {
-      online: onlineCount || 0,
-      activeMatches: activeMatches || 0,
-      totalWon,
-      totalPlayers: totalPlayers || 0,
-    }
-  }
-
-  async getTopPlayers(limit = 100): Promise<Profile[]> {
-    const { data, error } = await this.supabase
-      .from("profiles")
-      .select("*")
-      .order("wins", { ascending: false })
-      .order("total_earnings", { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error("Error fetching top players:", error)
-      return []
-    }
-
-    return data || []
-  }
-
-  async finishGame(roomId: string, winnerId: string): Promise<boolean> {
-    const room = await this.getRoom(roomId)
-    if (!room) return false
-
-    await this.updateGameState(roomId, {
-      status: "finished",
-      winner_id: winnerId,
-    })
-
-    const { error: finishError } = await this.supabase
-      .from("game_rooms")
-      .update({ finished_at: new Date().toISOString() })
-      .eq("id", roomId)
-
-    if (finishError) {
-      console.error("Error finishing game:", finishError)
-    }
-
-    const isHostWinner = winnerId === room.host_id
-    const winnerProfile = isHostWinner ? room.host_id : room.guest_id
-    const loserProfile = isHostWinner ? room.guest_id : room.host_id
-
-    if (!winnerProfile || !loserProfile) return false
-
-    const winnings = room.stake * 2
-    await this.supabase
-      .from("profiles")
-      .update({
-        wins: this.supabase.sql`wins + 1`,
-        total_earnings: this.supabase.sql`total_earnings + ${winnings}`,
-        total_wagered: this.supabase.sql`total_wagered + ${room.stake}`,
-      })
-      .eq("id", winnerProfile)
-
-    await this.supabase
-      .from("profiles")
-      .update({
-        losses: this.supabase.sql`losses + 1`,
-        total_wagered: this.supabase.sql`total_wagered + ${room.stake}`,
-      })
-      .eq("id", loserProfile)
-
-    await this.supabase.from("match_history").insert([
-      {
-        player_id: winnerProfile,
-        opponent_id: loserProfile,
-        room_id: roomId,
-        result: "win",
-        stake: room.stake,
-        earnings: winnings - room.stake,
-      },
-      {
-        player_id: loserProfile,
-        opponent_id: winnerProfile,
-        room_id: roomId,
-        result: "loss",
-        stake: room.stake,
-        earnings: -room.stake,
-      },
-    ])
-
-    return true
-  }
-
-  private async getOrCreateBotProfile(): Promise<Profile | null> {
-    try {
+    for (let i = 0; i < count; i++) {
       const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
-      const botWalletAddress = `bot_${botName.toLowerCase()}_${Date.now()}`
+      const stake = [0, 0, 0, 0.25, 0.5][Math.floor(Math.random() * 5)] // Mostly free matches
+      const minutesAgo = Math.floor(Math.random() * 10) + 1
 
-      console.log("[v0] Creating bot profile:", botName)
-
-      const { data, error } = await this.supabase
-        .from("profiles")
-        .insert({
-          wallet_address: botWalletAddress,
-          username: botName,
-          wins: Math.floor(Math.random() * 50) + 10,
-          losses: Math.floor(Math.random() * 30) + 5,
-          total_earnings: Math.random() * 100,
-          total_wagered: Math.random() * 200,
-          is_online: true,
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error("[v0] Error creating bot profile:", error)
-        return null
-      }
-
-      return data
-    } catch (error) {
-      console.error("[v0] getOrCreateBotProfile failed:", error)
-      return null
+      matches.push({
+        id: `fake_${Date.now()}_${i}`,
+        host_id: `bot_${i}`,
+        host_username: botName,
+        guest_id: null,
+        guest_username: null,
+        stake,
+        status: "waiting",
+        created_at: new Date(Date.now() - minutesAgo * 60000).toISOString(),
+        is_bot: true,
+      })
     }
+
+    return matches
+  }
+
+  async createRoom(walletAddress: string, username: string, stake: number): Promise<GameRoom> {
+    const room: GameRoom = {
+      id: `room_${Date.now()}`,
+      host_id: walletAddress,
+      host_username: username,
+      guest_id: null,
+      guest_username: null,
+      stake,
+      status: "waiting",
+      created_at: new Date().toISOString(),
+      is_bot: false,
+    }
+
+    // Save to localStorage
+    localStorage.setItem(`room_${room.id}`, JSON.stringify(room))
+
+    // Start 15 second timer for bot
+    this.startBotMatchTimer(room.id)
+
+    return room
   }
 
   private startBotMatchTimer(roomId: string) {
-    if (this.botMatchTimers.has(roomId)) {
-      clearTimeout(this.botMatchTimers.get(roomId))
-    }
+    const randomDelay = Math.floor(Math.random() * 5000) + 5000 // 5-10 seconds
+    console.log(`[v0] Starting bot timer for room: ${roomId} (${randomDelay / 1000}s)`)
 
-    const timer = setTimeout(async () => {
-      console.log("[v0] Bot match timer expired for room:", roomId)
-      await this.addBotToRoom(roomId)
-      this.botMatchTimers.delete(roomId)
-    }, 15000)
+    const timer = setTimeout(() => {
+      console.log("[v0] Adding bot to room after waiting")
+      this.addBotToRoom(roomId)
+    }, randomDelay)
 
     this.botMatchTimers.set(roomId, timer)
   }
 
-  private async addBotToRoom(roomId: string) {
-    try {
-      const { data: room, error: roomError } = await this.supabase
-        .from("game_rooms")
-        .select("*")
-        .eq("id", roomId)
-        .eq("status", "waiting")
-        .single()
+  private addBotToRoom(roomId: string) {
+    const roomData = localStorage.getItem(`room_${roomId}`)
+    if (!roomData) return
 
-      if (roomError || !room) {
-        console.log("[v0] Room not found or already started:", roomId)
-        return
+    const room: GameRoom = JSON.parse(roomData)
+
+    // Only add bot if room is still waiting
+    if (room.status !== "waiting") return
+
+    const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+
+    room.guest_id = `bot_${Date.now()}`
+    room.guest_username = botName
+    room.status = "playing"
+    room.is_bot = true
+
+    localStorage.setItem(`room_${roomId}`, JSON.stringify(room))
+
+    console.log("[v0] Bot added to room:", botName)
+
+    // Trigger callback if exists
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("room-updated", { detail: room }))
+    }
+  }
+
+  cancelBotTimer(roomId: string) {
+    if (this.botMatchTimers.has(roomId)) {
+      clearTimeout(this.botMatchTimers.get(roomId))
+      this.botMatchTimers.delete(roomId)
+      console.log("[v0] Bot timer cancelled for room:", roomId)
+    }
+  }
+
+  getRoom(roomId: string): GameRoom | null {
+    const roomData = localStorage.getItem(`room_${roomId}`)
+    if (!roomData) return null
+    return JSON.parse(roomData)
+  }
+
+  getOrCreateProfile(walletAddress: string, username?: string): Profile {
+    const profileData = localStorage.getItem(`profile_${walletAddress}`)
+
+    if (profileData) {
+      return JSON.parse(profileData)
+    }
+
+    const profile: Profile = {
+      id: walletAddress,
+      wallet_address: walletAddress,
+      username: username || walletAddress.slice(0, 8),
+      wins: 0,
+      losses: 0,
+      total_earnings: 0,
+    }
+
+    localStorage.setItem(`profile_${walletAddress}`, JSON.stringify(profile))
+    return profile
+  }
+
+  updateProfile(walletAddress: string, updates: Partial<Profile>) {
+    const profile = this.getOrCreateProfile(walletAddress)
+    const updated = { ...profile, ...updates }
+    localStorage.setItem(`profile_${walletAddress}`, JSON.stringify(updated))
+  }
+
+  applyQuitPenalty(walletAddress: string) {
+    const penaltyEnd = new Date(Date.now() + 60000).toISOString() // 1 minute
+    this.updateProfile(walletAddress, { penalty_until: penaltyEnd })
+    console.log("[v0] Applied 1 minute quit penalty to:", walletAddress)
+  }
+
+  hasPenalty(walletAddress: string): boolean {
+    const profile = this.getOrCreateProfile(walletAddress)
+    if (!profile.penalty_until) return false
+    return new Date(profile.penalty_until) > new Date()
+  }
+
+  getPenaltyTimeRemaining(walletAddress: string): number {
+    const profile = this.getOrCreateProfile(walletAddress)
+    if (!profile.penalty_until) return 0
+    const remaining = new Date(profile.penalty_until).getTime() - Date.now()
+    return remaining > 0 ? Math.ceil(remaining / 1000) : 0
+  }
+
+  getPlatformStats() {
+    return {
+      online: Math.floor(Math.random() * 100) + 50, // Random 50-150
+      activeMatches: Math.floor(Math.random() * 20) + 5, // Random 5-25
+      totalWon: Math.floor(Math.random() * 1000) + 500, // Random SOL amount
+      totalPlayers: Math.floor(Math.random() * 500) + 200, // Random 200-700
+    }
+  }
+
+  subscribeToRoom(roomId: string, callback: (room: GameRoom) => void) {
+    console.log("[v0] Subscribing to room:", roomId)
+
+    // Poll every second to check for changes
+    const interval = setInterval(() => {
+      const room = this.getRoom(roomId)
+      if (room) {
+        callback(room)
+      } else {
+        clearInterval(interval)
       }
+    }, 1000)
 
-      const botProfile = await this.getOrCreateBotProfile()
-      if (!botProfile) {
-        console.error("[v0] Failed to create bot profile")
-        return
+    // Listen for custom events
+    const handler = (e: CustomEvent) => {
+      if (e.detail.id === roomId) {
+        callback(e.detail)
       }
+    }
 
-      const { error: updateError } = await this.supabase
-        .from("game_rooms")
-        .update({
-          guest_id: botProfile.id,
-          status: "playing",
-          started_at: new Date().toISOString(),
-        })
-        .eq("id", roomId)
-        .eq("status", "waiting")
+    window.addEventListener("room-updated", handler as EventListener)
 
-      if (updateError) {
-        console.error("[v0] Error adding bot to room:", updateError)
-        return
-      }
+    this.roomSubscriptions.set(roomId, { interval, handler })
 
-      console.log("[v0] Bot successfully added to room:", roomId, "Bot:", botProfile.username)
-    } catch (error) {
-      console.error("[v0] addBotToRoom failed:", error)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener("room-updated", handler as EventListener)
+      this.roomSubscriptions.delete(roomId)
+      console.log("[v0] Unsubscribed from room:", roomId)
+    }
+  }
+
+  unsubscribeFromRoom(roomId?: string) {
+    if (roomId && this.roomSubscriptions.has(roomId)) {
+      const { interval, handler } = this.roomSubscriptions.get(roomId)
+      clearInterval(interval)
+      window.removeEventListener("room-updated", handler as EventListener)
+      this.roomSubscriptions.delete(roomId)
+      console.log("[v0] Unsubscribed from room:", roomId)
+    } else {
+      // Unsubscribe from all
+      this.roomSubscriptions.forEach(({ interval, handler }, key) => {
+        clearInterval(interval)
+        window.removeEventListener("room-updated", handler as EventListener)
+      })
+      this.roomSubscriptions.clear()
+      console.log("[v0] Unsubscribed from all rooms")
     }
   }
 }

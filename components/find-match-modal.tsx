@@ -7,10 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useWallet } from "@/lib/wallet-context"
-import { Swords, Clock, Users, Zap, Plus, Wallet } from "lucide-react"
-import { SolanaIcon } from "@/components/solana-icon"
+import { Swords, Clock, Users, Zap, Plus, Wallet, AlertCircle } from "lucide-react"
 import { gameService } from "@/lib/game-service"
 import { useRouter } from "next/navigation"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface FindMatchModalProps {
   open: boolean
@@ -23,37 +23,61 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   const [createStake, setCreateStake] = useState("0")
   const [showCreate, setShowCreate] = useState(false)
   const [availableRooms, setAvailableRooms] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null)
+  const [penaltyInfo, setPenaltyInfo] = useState<{ hasPenalty: boolean; remainingTime: number } | null>(null)
 
   useEffect(() => {
-    if (open && connected) {
-      loadAvailableRooms()
-      const interval = setInterval(loadAvailableRooms, 5000) // Refresh every 5 seconds
-      return () => clearInterval(interval)
+    if (open) {
+      loadFakeMatches()
+      checkPenalty()
     }
-  }, [open, connected])
+  }, [open, publicKey])
 
-  const loadAvailableRooms = async () => {
-    setLoading(true)
-    const rooms = await gameService.getAvailableRooms()
+  const checkPenalty = () => {
+    if (!publicKey) {
+      setPenaltyInfo(null)
+      return
+    }
 
-    // Transform data to match UI format
-    const transformed = rooms.map((room: any) => ({
+    const hasPenalty = gameService.hasPenalty(publicKey.toString())
+    if (hasPenalty) {
+      const remainingTime = gameService.getPenaltyTimeRemaining(publicKey.toString())
+      setPenaltyInfo({ hasPenalty, remainingTime })
+
+      const interval = setInterval(() => {
+        const newRemainingTime = gameService.getPenaltyTimeRemaining(publicKey.toString())
+        if (newRemainingTime <= 0) {
+          setPenaltyInfo(null)
+          clearInterval(interval)
+        } else {
+          setPenaltyInfo({ hasPenalty: true, remainingTime: newRemainingTime })
+        }
+      }, 1000)
+
+      return () => clearInterval(interval)
+    } else {
+      setPenaltyInfo(null)
+    }
+  }
+
+  const loadFakeMatches = () => {
+    const fakeRooms = gameService.generateFakeMatches()
+
+    const transformed = fakeRooms.map((room) => ({
       id: room.id,
       player: {
-        name: room.host?.username || "Player",
-        avatar: room.host?.avatar_url || room.host?.username?.slice(0, 2).toUpperCase() || "??",
+        name: room.host_username,
+        avatar: room.host_username.slice(0, 2).toUpperCase(),
         rank: Math.floor(Math.random() * 50) + 1,
-        wins: room.host?.wins || 0,
+        wins: Math.floor(Math.random() * 30) + 5,
       },
       stake: room.stake,
       createdAt: getTimeAgo(room.created_at),
       timeLeft: "5:00",
     }))
 
-    setAvailableRooms(transformed)
-    setLoading(false)
+    setAvailableRooms(transformed.filter((m) => m.stake === 0))
   }
 
   const getTimeAgo = (timestamp: string) => {
@@ -68,35 +92,35 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       connect()
       return
     }
-    if (balance < match.stake) {
-      alert("Insufficient balance!")
+
+    if (penaltyInfo?.hasPenalty) {
       return
     }
 
+    setJoiningRoomId(match.id)
+
     try {
-      // Get or create profile
-      const profile = await gameService.getOrCreateProfile(publicKey.toString())
-      if (!profile) {
-        alert(
-          "Unable to connect to database. Please make sure environment variables are configured and redeploy the app.",
-        )
-        return
+      const profile = gameService.getOrCreateProfile(publicKey.toString())
+      const room = await gameService.createRoom(publicKey.toString(), profile.username, 0)
+
+      const botName = match.player.name
+      const roomData = gameService.getRoom(room.id)
+      if (roomData) {
+        roomData.guest_id = `bot_${Date.now()}`
+        roomData.guest_username = botName
+        roomData.status = "playing"
+        roomData.is_bot = true
+        localStorage.setItem(`room_${room.id}`, JSON.stringify(roomData))
       }
 
-      // Join the room
-      const success = await gameService.joinRoom(match.id, profile.id)
-      if (success) {
-        // Navigate to game page with room ID
-        router.push(`/play?room=${match.id}`)
-        onOpenChange(false)
-      } else {
-        alert("Failed to join match. It may have been taken by another player.")
-        loadAvailableRooms()
-      }
+      router.push(`/play?room=${room.id}`)
+      onOpenChange(false)
     } catch (error: any) {
-      console.error("Join match error:", error)
-      alert(`Error: ${error.message || "Please check database connection and try again"}`)
+      console.error("Join error:", error)
+      alert(`Error: ${error.message}`)
     }
+
+    setJoiningRoomId(null)
   }
 
   const handleCreate = async () => {
@@ -104,6 +128,11 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       connect()
       return
     }
+
+    if (penaltyInfo?.hasPenalty) {
+      return
+    }
+
     const stake = Number.parseFloat(createStake)
     if (isNaN(stake) || stake < 0) {
       alert("Invalid stake amount!")
@@ -113,82 +142,14 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
     setCreating(true)
 
     try {
-      // For SOL matches (stake > 0), process payment through Phantom
-      if (stake > 0) {
-        if (balance < stake) {
-          alert("Insufficient balance!")
-          setCreating(false)
-          return
-        }
+      const profile = gameService.getOrCreateProfile(publicKey.toString())
+      const room = await gameService.createRoom(publicKey.toString(), profile.username, stake)
 
-        // Check if Solana Web3 is loaded
-        if (typeof window === "undefined" || !window.solana) {
-          alert("Please install Phantom wallet!")
-          window.open("https://phantom.app/", "_blank")
-          setCreating(false)
-          return
-        }
-
-        try {
-          // Create transaction for payment
-          const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = await import(
-            "@solana/web3.js"
-          )
-
-          const connection = new Connection("https://api.mainnet-beta.solana.com")
-          const recipientPubkey = new PublicKey("HvoGuvTAXb1sAD47nFkNAqcWT7EvDFZkrZum22u89EW8")
-
-          // Create transfer instruction
-          const transaction = new Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: publicKey,
-              toPubkey: recipientPubkey,
-              lamports: stake * LAMPORTS_PER_SOL,
-            }),
-          )
-
-          // Get recent blockhash
-          transaction.feePayer = publicKey
-          const { blockhash } = await connection.getLatestBlockhash()
-          transaction.recentBlockhash = blockhash
-
-          // Sign and send transaction
-          const signed = await window.solana.signAndSendTransaction(transaction)
-          console.log("Transaction sent:", signed.signature)
-
-          // Wait for confirmation
-          await connection.confirmTransaction(signed.signature)
-          console.log("Payment confirmed!")
-        } catch (error: any) {
-          console.error("Payment error:", error)
-          alert(`Payment failed: ${error.message || "Transaction cancelled"}`)
-          setCreating(false)
-          return
-        }
-      }
-
-      // Get or create profile
-      const profile = await gameService.getOrCreateProfile(publicKey.toString())
-      if (!profile) {
-        alert("Unable to connect to database. Please check Supabase configuration and redeploy.")
-        setCreating(false)
-        return
-      }
-
-      // Create room after successful payment (or directly for free matches)
-      const room = await gameService.createRoom(profile.id, stake)
-      if (room) {
-        // Navigate to game page with room ID
-        router.push(`/play?room=${room.id}`)
-        onOpenChange(false)
-      } else {
-        alert("Failed to create match. Please check database connection.")
-      }
+      router.push(`/play?room=${room.id}`)
+      onOpenChange(false)
     } catch (error: any) {
       console.error("Match creation error:", error)
-      alert(
-        `Error: ${error.message || "Database connection failed. Please redeploy the app with proper environment variables."}`,
-      )
+      alert(`Error: ${error.message}`)
     }
 
     setCreating(false)
@@ -217,13 +178,21 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Balance Info */}
+            {penaltyInfo?.hasPenalty && (
+              <Alert variant="destructive" className="bg-red-500/10 border-red-500/50">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  You have a 1-minute penalty for quitting a game. You can play again in{" "}
+                  <strong>{Math.ceil(penaltyInfo.remainingTime / 1000)}s</strong>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
               <span className="text-sm text-muted-foreground">Your Balance</span>
               <span className="text-lg font-bold text-white">{balance.toFixed(4)} SOL</span>
             </div>
 
-            {/* Create Match Section */}
             {showCreate ? (
               <Card className="p-4 bg-secondary/30 border-border">
                 <h4 className="font-semibold text-foreground mb-3">Create New Match</h4>
@@ -237,9 +206,14 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                       onChange={(e) => setCreateStake(e.target.value)}
                       className="bg-secondary border-border"
                       placeholder="Stake amount (SOL) - 0 for free"
+                      disabled={penaltyInfo?.hasPenalty}
                     />
                   </div>
-                  <Button onClick={handleCreate} disabled={creating} className="bg-white text-black hover:bg-white/90">
+                  <Button
+                    onClick={handleCreate}
+                    disabled={creating || penaltyInfo?.hasPenalty}
+                    className="bg-white text-black hover:bg-white/90"
+                  >
                     <Zap className="w-4 h-4 mr-2" />
                     {creating ? "Creating..." : "Create"}
                   </Button>
@@ -271,76 +245,70 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                 <p className="text-xs text-blue-400/70 mt-2 text-center">Paid matches coming soon</p>
               </Card>
             ) : (
-              <Button onClick={() => setShowCreate(true)} className="w-full bg-white text-black hover:bg-white/90">
+              <Button
+                onClick={() => setShowCreate(true)}
+                disabled={penaltyInfo?.hasPenalty}
+                className="w-full bg-white text-black hover:bg-white/90"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create New Match
               </Button>
             )}
 
-            {/* Available Matches */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold text-foreground">Available Matches</h4>
                 <Badge variant="secondary">{availableRooms.length} waiting</Badge>
               </div>
               <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2">
-                {loading ? (
-                  <div className="text-center py-8 text-muted-foreground">Loading matches...</div>
-                ) : availableRooms.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">No matches available. Create one!</div>
-                ) : (
-                  availableRooms.map((match) => (
-                    <Card
-                      key={match.id}
-                      className="p-4 bg-secondary/30 border-border hover:border-white/30 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold">
-                            {match.player.avatar}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-foreground">{match.player.name}</span>
-                              <Badge variant="outline" className="text-xs border-white/30">
-                                #{match.player.rank}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Users className="w-3 h-3" />
-                                {match.player.wins} wins
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {match.createdAt}
-                              </span>
-                            </div>
-                          </div>
+                {availableRooms.map((match) => (
+                  <Card
+                    key={match.id}
+                    className="p-4 bg-secondary/30 border-border hover:border-white/30 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold">
+                          {match.player.avatar}
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <div className="flex items-center gap-1 justify-end">
-                              <SolanaIcon className="w-4 h-4" />
-                              <span className="text-lg font-bold text-white">
-                                {match.stake === 0 ? "Free" : `${match.stake} SOL`}
-                              </span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">{match.timeLeft}</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">{match.player.name}</span>
+                            <Badge variant="outline" className="text-xs border-white/30">
+                              #{match.player.rank}
+                            </Badge>
                           </div>
-                          <Button
-                            onClick={() => handleJoin(match)}
-                            className="bg-white text-black hover:bg-white/90"
-                            disabled={balance < match.stake}
-                          >
-                            <Zap className="w-4 h-4 mr-2" />
-                            Join
-                          </Button>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {match.player.wins} wins
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {match.createdAt}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </Card>
-                  ))
-                )}
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 justify-end">
+                            <span className="text-lg font-bold text-white">Free</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{match.timeLeft}</span>
+                        </div>
+                        <Button
+                          onClick={() => handleJoin(match)}
+                          className="bg-white text-black hover:bg-white/90"
+                          disabled={joiningRoomId === match.id || penaltyInfo?.hasPenalty}
+                        >
+                          <Zap className="w-4 h-4 mr-2" />
+                          {joiningRoomId === match.id ? "Joining..." : "Join"}
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
               </div>
             </div>
           </div>

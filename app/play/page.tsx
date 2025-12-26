@@ -19,6 +19,13 @@ export default function PlayPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isHost, setIsHost] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
+
+  useEffect(() => {
+    if (isMinimized) {
+      router.push("/")
+    }
+  }, [isMinimized, router])
 
   useEffect(() => {
     if (!connected || !publicKey) {
@@ -33,6 +40,12 @@ export default function PlayPage() {
     }
 
     loadRoom()
+
+    return () => {
+      if (roomId) {
+        gameService.unsubscribeFromRoom(roomId)
+      }
+    }
   }, [connected, publicKey, roomId])
 
   const loadRoom = async () => {
@@ -48,21 +61,19 @@ export default function PlayPage() {
     }
 
     setRoom(roomData)
-    setIsHost(roomData.host_id === publicKey)
+    setIsHost(roomData.host_id === publicKey?.toString())
     setLoading(false)
 
     // Subscribe to room updates
     gameService.subscribeToRoom(roomId, (updatedRoom) => {
       setRoom(updatedRoom)
     })
-
-    return () => {
-      gameService.unsubscribeFromRoom()
-    }
   }
 
   const handleExit = () => {
-    gameService.unsubscribeFromRoom()
+    if (roomId) {
+      gameService.unsubscribeFromRoom(roomId)
+    }
     router.push("/")
   }
 
@@ -122,17 +133,13 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-background p-4">
-      <div className="absolute top-4 right-4 z-20">
-        <Button
-          variant="outline"
-          size="icon"
-          className="border-white/30 bg-black/50 backdrop-blur-sm hover:bg-white/10 h-9 w-9"
-          onClick={handleExit}
-        >
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-      <PoolGame isTraining={false} roomId={roomId || undefined} isHost={isHost} playerProfile={null} />
+      <PoolGame
+        isTraining={false}
+        roomId={roomId || undefined}
+        isHost={isHost}
+        playerProfile={null}
+        onMinimize={() => setIsMinimized(true)}
+      />
     </div>
   )
 }

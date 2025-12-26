@@ -3,8 +3,20 @@
 import type React from "react"
 import { useRef, useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Volume2, VolumeX, RotateCcw } from "lucide-react"
-import type { UserProfile } from "@/lib/wallet-context"
+import { RotateCcw, X } from "lucide-react"
+import { gameService } from "@/lib/game-service" // Assuming gameService is available
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 const TABLE_WIDTH = 900
 const TABLE_HEIGHT = 500
@@ -62,7 +74,10 @@ const pockets: Pocket[] = [
 
 interface PoolGameProps {
   isTraining?: boolean
-  playerProfile?: UserProfile | null
+  roomId?: string
+  isHost?: boolean
+  playerProfile?: any
+  onMinimize?: () => void
 }
 
 function MiniPocketedBall({ ballId }: { ballId: number }) {
@@ -88,7 +103,7 @@ function MiniPocketedBall({ ballId }: { ballId: number }) {
   )
 }
 
-export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
+export function PoolGame({ isTraining = false, roomId, isHost = false, playerProfile, onMinimize }: PoolGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [balls, setBalls] = useState<Ball[]>([])
   const ballsRef = useRef<Ball[]>([])
@@ -110,16 +125,235 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
   const [botThinking, setBotThinking] = useState(false)
   const [botShouldPlay, setBotShouldPlay] = useState(false)
   const [pocketedOwnBall, setPocketedOwnBall] = useState(false)
+  const [restoredFromMinimize, setRestoredFromMinimize] = useState(false)
+
+  const [room, setRoom] = useState<any>(null)
+  const [turnTimer, setTurnTimer] = useState(30)
+  const [showWarning, setShowWarning] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
+  const [showQuitDialog, setShowQuitDialog] = useState(false)
 
   const botTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Turn info is now displayed in player cards with timer
+
+  const handleMinimize = () => {
+    if (roomId) {
+      localStorage.setItem(
+        "minimizedGame",
+        JSON.stringify({
+          roomId,
+          currentPlayer,
+          turnTimer,
+          isMyTurn: currentPlayer === 1,
+          balls,
+          player1Pocketed,
+          player2Pocketed,
+          player1Type,
+          player2Type,
+          gameOver,
+          winner,
+          message,
+          hasShot,
+        }),
+      )
+    }
+    setIsMinimized(true)
+    if (onMinimize) {
+      onMinimize()
+    }
+  }
 
   useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-    return () => {
-      audioContextRef.current?.close()
+    if (!isMinimized) {
+      localStorage.removeItem("minimizedGame")
     }
-  }, [])
+  }, [isMinimized])
+
+  // Restore game state from minimize
+  useEffect(() => {
+    const minimizedGame = localStorage.getItem("minimizedGame")
+    if (minimizedGame && roomId) {
+      try {
+        const savedState = JSON.parse(minimizedGame)
+        if (savedState.roomId === roomId) {
+          console.log("[v0] Restoring game state from minimize:", savedState)
+
+          // Mark that we're restoring from minimize
+          setRestoredFromMinimize(true)
+
+          // Restore all state
+          if (savedState.balls && savedState.balls.length > 0) {
+            setBalls(savedState.balls)
+            ballsRef.current = savedState.balls
+          }
+          setPlayer1Pocketed(savedState.player1Pocketed || [])
+          setPlayer2Pocketed(savedState.player2Pocketed || [])
+          setPlayer1Type(savedState.player1Type || null)
+          setPlayer2Type(savedState.player2Type || null)
+          setCurrentPlayer(savedState.currentPlayer || 1)
+          setTurnTimer(savedState.turnTimer || 30)
+          setGameOver(savedState.gameOver || false)
+          setWinner(savedState.winner || null)
+          setMessage(savedState.message || "")
+          setHasShot(savedState.hasShot || false)
+          localStorage.removeItem("minimizedGame")
+
+          console.log("[v0] Game state restored successfully")
+        }
+      } catch (e) {
+        console.error("[v0] Failed to restore game state:", e)
+      }
+    }
+  }, [roomId])
+
+  useEffect(() => {
+    if (restoredFromMinimize && balls.length > 0) {
+      console.log("[v0] Updating Matter.js bodies with restored state")
+      // Assuming you have an engineRef and Composite/Body imported from matter-js
+      // This part needs to be adapted if you are not using matter-js or if the structure is different.
+      // For now, we'll simulate updating the balls state directly as a placeholder.
+
+      // Example: If using matter-js, you'd iterate through balls and update corresponding bodies.
+      // const allBodies = Composite.allBodies(engineRef.current.world)
+      // balls.forEach(ball => {
+      //   const body = allBodies.find(b => (b as any).ballId === ball.id)
+      //   if (body) {
+      //     Body.setPosition(body, { x: ball.x, y: ball.y })
+      //     Body.setVelocity(body, { x: ball.vx || 0, y: ball.vy || 0 })
+      //     if (ball.pocketed) {
+      //       Body.setPosition(body, { x: -1000, y: -1000 }) // Move off screen
+      //     }
+      //   }
+      // })
+
+      // Since this code doesn't explicitly show matter-js setup, we'll just ensure the balls state is correct.
+      // The physics update loop below will use the latest ballsRef.current.
+
+      setRestoredFromMinimize(false)
+      console.log("[v0] Balls state synchronized after restore (Matter.js update placeholder)")
+    }
+  }, [restoredFromMinimize, balls])
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isBallMoving || gameOver || currentPlayer !== 1 || isMinimized) return
+
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+
+    const cueBall = ballsRef.current.find((b) => b.id === 0 && !b.pocketed)
+    if (!cueBall) return
+
+    // Check if clicking on the cue ball
+    const dx = x - cueBall.x
+    const dy = y - cueBall.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    if (dist < BALL_RADIUS) {
+      setIsDragging(true)
+      setDragStart({ x, y })
+      setDragEnd({ x, y })
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging || isBallMoving || gameOver || currentPlayer !== 1 || isMinimized) return
+
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    setDragEnd({ x, y })
+  }
+
+  const handleMouseUp = () => {
+    if (!isDragging || isBallMoving || gameOver || currentPlayer !== 1) return
+
+    setIsDragging(false)
+    const dx = dragStart.x - dragEnd.x
+    const dy = dragStart.y - dragEnd.y
+    const power = Math.sqrt(dx * dx + dy * dy)
+
+    if (power > 0) {
+      const angle = Math.atan2(dy, dx)
+      const scaledPower = Math.min(power * 0.2, MAX_POWER) // Scale down power
+
+      setBalls((prev) =>
+        prev.map((ball) => {
+          if (ball.id === 0 && !ball.pocketed) {
+            return {
+              ...ball,
+              vx: Math.cos(angle) * scaledPower,
+              vy: Math.sin(angle) * scaledPower,
+            }
+          }
+          return ball
+        }),
+      )
+      playSound("hit")
+      setIsBallMoving(true)
+      setHasShot(true)
+      setPocketedOwnBall(false)
+      setMessage("Your shot!")
+    }
+  }
+
+  useEffect(() => {
+    if (roomId) {
+      const roomData = gameService.getRoom(roomId)
+      if (roomData) {
+        console.log("[v0] Room loaded:", roomData)
+        setRoom(roomData)
+      }
+    }
+  }, [roomId])
+
+  useEffect(() => {
+    if (isTraining || !room || isBallMoving || gameOver) {
+      setTurnTimer(30)
+      setShowWarning(false)
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+      return
+    }
+
+    // Start timer
+    setTurnTimer(30)
+    setShowWarning(false)
+
+    timerRef.current = setInterval(() => {
+      setTurnTimer((prev) => {
+        if (prev <= 1) {
+          // Time's up - switch player
+          setCurrentPlayer(currentPlayer === 1 ? 2 : 1)
+          setMessage("Time's up! Turn switched.")
+          return 30
+        }
+
+        // Show warning at 10 seconds - also show when minimized
+        if (prev === 10) {
+          setShowWarning(true)
+          setTimeout(() => setShowWarning(false), 3000)
+        }
+
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [currentPlayer, isBallMoving, gameOver, isTraining, room])
 
   const playSound = useCallback(
     (type: "hit" | "pocket" | "cushion") => {
@@ -257,6 +491,10 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
     if (botTimeoutRef.current) {
       clearTimeout(botTimeoutRef.current)
     }
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
 
     const newBalls: Ball[] = [
       { id: 0, x: TABLE_WIDTH * 0.25, y: TABLE_HEIGHT / 2, vx: 0, vy: 0, pocketed: false, spin: 0 },
@@ -300,7 +538,19 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
     setBotThinking(false)
     setBotShouldPlay(false)
     setPocketedOwnBall(false)
+    setTurnTimer(30)
+    setShowWarning(false)
+    setIsMinimized(false) // Ensure game is not minimized on reset
   }, [])
+
+  // Function to reset the game
+  const resetGame = useCallback(() => {
+    initializeBalls()
+    // If in multiplayer, might need to signal other players or re-initialize room state
+    if (roomId && !isTraining) {
+      // Example: gameService.resetRoom(roomId)
+    }
+  }, [initializeBalls, roomId, isTraining])
 
   useEffect(() => {
     initializeBalls()
@@ -312,16 +562,30 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
 
   // Bot turn logic
   useEffect(() => {
-    if (isTraining && currentPlayer === 2 && !isBallMoving && !gameOver && !botThinking && !botShouldPlay && !hasShot) {
+    const isBotOpponent = room?.is_bot && isHost // If I'm host and room has bot, then guest is bot
+    const shouldBotPlay = (isTraining || isBotOpponent) && currentPlayer === 2
+
+    console.log("[v0] Bot check:", {
+      isBotOpponent,
+      shouldBotPlay,
+      currentPlayer,
+      isTraining,
+      isHost,
+      roomIsBot: room?.is_bot,
+    })
+
+    if (shouldBotPlay && !isBallMoving && !gameOver && !botThinking && !botShouldPlay && !hasShot) {
+      console.log("[v0] Starting bot thinking...")
       setBotThinking(true)
       setMessage("Bot is thinking...")
 
       botTimeoutRef.current = setTimeout(() => {
+        console.log("[v0] Bot ready to play")
         setBotThinking(false)
         setBotShouldPlay(true)
       }, 1200)
     }
-  }, [currentPlayer, isBallMoving, gameOver, isTraining, botThinking, botShouldPlay, hasShot])
+  }, [currentPlayer, isBallMoving, gameOver, isTraining, botThinking, botShouldPlay, hasShot, room, isHost])
 
   // Execute bot shot
   useEffect(() => {
@@ -348,25 +612,28 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
       const power = 10 + Math.random() * 8
       const angleVariation = (Math.random() - 0.5) * 0.15
 
-      setBalls((prev) =>
-        prev.map((ball) => {
-          if (ball.id === 0 && !ball.pocketed) {
-            return {
-              ...ball,
-              vx: Math.cos(angle + angleVariation) * power,
-              vy: Math.sin(angle + angleVariation) * power,
+      const shootDelay = 2000 + Math.random() * 1000 // 2-3 seconds
+      setTimeout(() => {
+        setBalls((prev) =>
+          prev.map((ball) => {
+            if (ball.id === 0 && !ball.pocketed) {
+              return {
+                ...ball,
+                vx: Math.cos(angle + angleVariation) * power,
+                vy: Math.sin(angle + angleVariation) * power,
+              }
             }
-          }
-          return ball
-        }),
-      )
+            return ball
+          }),
+        )
 
-      playSound("hit")
-      setIsBallMoving(true)
-      setHasShot(true)
-      setBotShouldPlay(false)
-      setPocketedOwnBall(false)
-      setMessage("Bot shot!")
+        playSound("hit")
+        setIsBallMoving(true)
+        setHasShot(true)
+        setBotShouldPlay(false)
+        setPocketedOwnBall(false)
+        setMessage("")
+      }, shootDelay)
     }
   }, [botShouldPlay, isBallMoving, gameOver, player2Type, playSound])
 
@@ -582,6 +849,9 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
     pocketedOwnBall,
   ])
 
+  // Re-draw logic from physics update: This might be redundant if the physics update also triggers a re-render.
+  // However, for clarity and to ensure the canvas is always redrawn when state changes affecting visuals, we keep it.
+  // Alternatively, the physics update could directly call drawCanvas.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -969,189 +1239,195 @@ export function PoolGame({ isTraining = false, playerProfile }: PoolGameProps) {
     }
   }, [balls, isDragging, dragStart, dragEnd, isBallMoving, currentPlayer, player1Type])
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isBallMoving || gameOver || (isTraining && currentPlayer === 2)) return
+  const handleQuit = () => {
+    console.log("[v0] Quit confirmed, applying penalty...")
+    if (playerProfile?.wallet_address) {
+      gameService.applyQuitPenalty(playerProfile.wallet_address)
+      console.log("[v0] Penalty applied to:", playerProfile.wallet_address)
 
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const scaleX = TABLE_WIDTH / rect.width
-    const scaleY = TABLE_HEIGHT / rect.height
-    const x = (e.clientX - rect.left) * scaleX
-    const y = (e.clientY - rect.top) * scaleY
-
-    if (cueBallPlacement) {
-      const validX = Math.max(CUSHION_MARGIN + BALL_RADIUS, Math.min(TABLE_WIDTH * 0.25, x))
-      const validY = Math.max(CUSHION_MARGIN + BALL_RADIUS, Math.min(TABLE_HEIGHT - CUSHION_MARGIN - BALL_RADIUS, y))
-
-      setBalls((prev) =>
-        prev.map((ball) => (ball.id === 0 ? { ...ball, x: validX, y: validY, pocketed: false } : ball)),
-      )
-      setCueBallPlacement(false)
-      setMessage("Your Turn!")
-      return
+      // Verify penalty was applied
+      const hasPenalty = gameService.hasPenalty(playerProfile.wallet_address)
+      const remainingTime = gameService.getPenaltyTimeRemaining(playerProfile.wallet_address)
+      console.log("[v0] Penalty check:", { hasPenalty, remainingTime })
     }
 
-    const cueBall = balls.find((b) => b.id === 0 && !b.pocketed)
-    if (!cueBall) return
+    setShowQuitDialog(false)
 
-    const dist = Math.sqrt((x - cueBall.x) ** 2 + (y - cueBall.y) ** 2)
-    if (dist < BALL_RADIUS * 3) {
-      setIsDragging(true)
-      setDragStart({ x: cueBall.x, y: cueBall.y })
-      setDragEnd({ x, y })
+    if (onMinimize) {
+      onMinimize()
+    } else {
+      window.location.href = "/"
     }
-  }
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging) return
-
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const scaleX = TABLE_WIDTH / rect.width
-    const scaleY = TABLE_HEIGHT / rect.height
-    const x = (e.clientX - rect.left) * scaleX
-    const y = (e.clientY - rect.top) * scaleY
-
-    setDragEnd({ x, y })
-  }
-
-  const handleMouseUp = () => {
-    if (!isDragging) return
-
-    const dx = dragStart.x - dragEnd.x
-    const dy = dragStart.y - dragEnd.y
-    const power = Math.min(Math.sqrt(dx * dx + dy * dy) / 10, MAX_POWER)
-
-    if (power > 0.5) {
-      const angle = Math.atan2(dy, dx)
-
-      setBalls((prev) =>
-        prev.map((ball) => {
-          if (ball.id === 0 && !ball.pocketed) {
-            return {
-              ...ball,
-              vx: Math.cos(angle) * power,
-              vy: Math.sin(angle) * power,
-            }
-          }
-          return ball
-        }),
-      )
-
-      playSound("hit")
-      setIsBallMoving(true)
-      setHasShot(true)
-      setPocketedOwnBall(false)
-    }
-
-    setIsDragging(false)
   }
 
   const playerName = playerProfile?.username || "You"
+  const opponentName = room?.guest_username || "Opponent"
   const playerType = player1Type ? `(${player1Type})` : ""
   const opponentType = player2Type ? `(${player2Type})` : ""
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="w-full max-w-[900px] mb-3">
-        <div className="grid grid-cols-3 items-center bg-black/50 rounded-lg px-4 py-2">
-          {/* Player 1 */}
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-8 h-8 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold ${currentPlayer === 1 ? "ring-2 ring-green-500" : ""}`}
-            >
-              {playerProfile?.username?.slice(0, 2).toUpperCase() || "ZH"}
-            </div>
-            <div>
-              <span className="text-sm font-medium text-white">{playerName}</span>
-              <span className="text-xs text-muted-foreground ml-1">{playerType}</span>
-            </div>
-            {/* Pocketed balls */}
-            <div className="flex gap-1 ml-2">
-              {player1Pocketed.map((ballId) => (
-                <MiniPocketedBall key={ballId} ballId={ballId} />
-              ))}
+    <div className="flex flex-col items-center relative">
+      {showWarning && (
+        <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="rounded-lg border bg-card px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-2">
+              <div className="relative flex h-2 w-2 rounded-full bg-muted-foreground">
+                <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-muted-foreground/50 opacity-75"></span>
+              </div>
+              <p className="text-sm font-medium">10 seconds left</p>
             </div>
           </div>
-
-          {/* VS */}
-          <div className="text-center">
-            <span className="text-sm font-bold text-muted-foreground">vs</span>
-          </div>
-
-          {/* Player 2 / Bot */}
-          <div className="flex items-center justify-end gap-2">
-            {/* Pocketed balls */}
-            <div className="flex gap-1 mr-2">
-              {player2Pocketed.map((ballId) => (
-                <MiniPocketedBall key={ballId} ballId={ballId} />
-              ))}
-            </div>
-            <div className="text-right">
-              <span className="text-sm font-medium text-white">{isTraining ? "Bot" : "Player 2"}</span>
-              <span className="text-xs text-muted-foreground ml-1">{opponentType}</span>
-            </div>
-            <div
-              className={`w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs ${currentPlayer === 2 ? "ring-2 ring-green-500" : ""}`}
-            >
-              {isTraining ? "🤖" : "P2"}
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                className="h-8 w-8 hover:bg-white/10"
-              >
-                {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              </Button>
-              <Button variant="ghost" size="icon" onClick={initializeBalls} className="h-8 w-8 hover:bg-white/10">
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Game message */}
-      <div className="text-center mb-2">
-        <span
-          className={`text-sm font-medium ${gameOver ? (winner === 1 ? "text-green-500" : "text-red-500") : "text-cyan-400"}`}
-        >
-          {message}
-        </span>
-      </div>
-
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
-        width={TABLE_WIDTH}
-        height={TABLE_HEIGHT}
-        className="rounded-lg cursor-crosshair max-w-full"
-        style={{ aspectRatio: `${TABLE_WIDTH}/${TABLE_HEIGHT}` }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      />
-
-      {/* Game over buttons */}
-      {gameOver && (
-        <div className="mt-4">
-          <Button onClick={initializeBalls} className="bg-white text-black hover:bg-white/90">
-            <RotateCcw className="w-4 h-4 mr-2" />
-            Play Again
-          </Button>
         </div>
       )}
+
+      {isMinimized && (
+        <div
+          className="fixed bottom-4 right-4 z-40 bg-card/95 backdrop-blur-sm border border-border rounded-lg p-4 cursor-pointer hover:bg-card/80 transition-all hover:scale-105 shadow-xl"
+          onClick={() => setIsMinimized(false)}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-white animate-pulse" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Game in progress</p>
+              <p className="text-xs text-muted-foreground">
+                {currentPlayer === 1 ? "Your turn" : `${opponentName}'s turn`} • {turnTimer}s
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={isMinimized ? "hidden" : ""}>
+        <>
+          <div className="w-full max-w-[900px] mb-3">
+            <div className="grid grid-cols-3 items-center bg-black/50 rounded-lg px-4 py-2">
+              {/* Player 1 */}
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-8 h-8 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold ${currentPlayer === 1 ? "ring-2 ring-white" : ""}`}
+                >
+                  {playerProfile?.username?.slice(0, 2).toUpperCase() || "ZH"}
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm font-medium text-white">{playerName}</span>
+                    {playerType && <span className="text-xs text-muted-foreground">{playerType}</span>}
+                  </div>
+                  {!isTraining && room && currentPlayer === 1 && (
+                    <span className="text-xs text-white font-medium">{turnTimer}s</span>
+                  )}
+                </div>
+                {/* Pocketed balls */}
+                <div className="flex gap-1 ml-2">
+                  {player1Pocketed.map((ballId) => (
+                    <MiniPocketedBall key={ballId} ballId={ballId} />
+                  ))}
+                </div>
+              </div>
+
+              {/* VS */}
+              <div className="text-center">
+                <span className="text-sm font-bold text-muted-foreground">vs</span>
+              </div>
+
+              {/* Player 2 / Bot */}
+              <div className="flex items-center justify-end gap-2">
+                {/* Pocketed balls */}
+                <div className="flex gap-1 mr-2">
+                  {player2Pocketed.map((ballId) => (
+                    <MiniPocketedBall key={ballId} ballId={ballId} />
+                  ))}
+                </div>
+                <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm font-medium text-white">{opponentName}</span>
+                    {opponentType && <span className="text-xs text-muted-foreground">{opponentType}</span>}
+                  </div>
+                  {!isTraining && room && currentPlayer === 2 && (
+                    <span className="text-xs text-white font-medium">{turnTimer}s</span>
+                  )}
+                </div>
+                <div
+                  className={`w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs ${currentPlayer === 2 ? "ring-2 ring-white" : ""}`}
+                >
+                  {opponentName?.slice(0, 2).toUpperCase() || "P2"}
+                </div>
+
+                <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
+                  <AlertDialog open={showQuitDialog} onOpenChange={setShowQuitDialog}>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="w-7 h-7 border-white/30 bg-transparent hover:bg-white/10"
+                        title="Close game"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Quit Game?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Quitting an active game will result in a <strong>1 minute penalty</strong>. You won't be able
+                          to join or create new games during this time.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Stay in game</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleQuit} className="bg-destructive hover:bg-destructive/90">
+                          Quit anyway
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Canvas */}
+          <canvas
+            ref={canvasRef}
+            width={TABLE_WIDTH}
+            height={TABLE_HEIGHT}
+            className="rounded-lg cursor-crosshair max-w-full"
+            style={{ aspectRatio: `${TABLE_WIDTH}/${TABLE_HEIGHT}` }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          />
+
+          {/* Game over buttons */}
+          {gameOver && (
+            <div className="mt-4">
+              <Button onClick={resetGame} className="bg-white text-black hover:bg-white/90">
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Play Again
+              </Button>
+            </div>
+          )}
+        </>
+      </div>
+
+      <AlertDialog open={showQuitDialog} onOpenChange={setShowQuitDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Quit Game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Quitting an active game will result in a <strong>1 minute penalty</strong>. You won't be able to join or
+              create new games during this time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay in game</AlertDialogCancel>
+            <AlertDialogAction onClick={handleQuit} className="bg-destructive hover:bg-destructive/90">
+              Quit anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
-
-export default PoolGame

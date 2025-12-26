@@ -4,6 +4,7 @@ import { Inter, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { WalletProvider } from "@/lib/wallet-context"
 import { InventoryProvider } from "@/lib/inventory-context"
+import { GameWidget } from "@/components/game-widget"
 import "./globals.css"
 
 const _inter = Inter({ subsets: ["latin"] })
@@ -30,6 +31,7 @@ export default function RootLayout({
         <WalletProvider>
           <InventoryProvider>{children}</InventoryProvider>
         </WalletProvider>
+        <GameWidget />
         <Analytics />
       </body>
     </html>

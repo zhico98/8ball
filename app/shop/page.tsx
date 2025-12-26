@@ -140,7 +140,7 @@ export default function ShopPage() {
                   onClick={() => handlePackClick(pack)}
                   className={`p-5 border-2 ${pack.color} cursor-pointer transition-all hover:scale-[1.02] bg-secondary/20`}
                 >
-                  <div className="aspect-[4/3] rounded-lg flex items-center justify-center mb-4 overflow-hidden relative">
+                  <div className="aspect-[4/5] rounded-lg mb-4 overflow-hidden relative">
                     <Image src={pack.image || "/placeholder.svg"} alt={pack.name} fill className="object-cover" />
                   </div>
                   <h3 className="font-semibold text-foreground mb-2">{pack.name}</h3>
@@ -180,7 +180,7 @@ export default function ShopPage() {
                   onClick={() => handlePackClick(box)}
                   className={`p-5 border-2 ${box.color} cursor-pointer transition-all hover:scale-[1.02] bg-secondary/20`}
                 >
-                  <div className="aspect-[4/3] rounded-lg flex items-center justify-center mb-4 overflow-hidden relative">
+                  <div className="aspect-[4/5] rounded-lg mb-4 overflow-hidden relative">
                     <Image src={box.image || "/placeholder.svg"} alt={box.name} fill className="object-cover" />
                   </div>
                   <h3 className="font-semibold text-foreground mb-2">{box.name}</h3>

@@ -36,8 +36,8 @@ export default function RewardsPage() {
         <section className="max-w-6xl mx-auto px-6 py-12">
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Rewards History */}
-            <Card className="lg:col-span-2 p-8 bg-card border-border min-h-[300px] flex items-center justify-center">
-              <div className="text-center">
+            <Card className="lg:col-span-2 p-8 bg-card border-border min-h-[300px] flex items-center justify-center backdrop-blur-sm">
+              <div className="text-center blur-sm">
                 <p className="text-foreground font-medium mb-2">No rewards yet</p>
                 <p className="text-muted-foreground text-sm">Your match rewards will appear here</p>
               </div>

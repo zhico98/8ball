@@ -173,7 +173,7 @@ export function ProfileModal({ open, onOpenChange, viewProfile, isOwnProfile = t
               <p className="text-xs text-muted-foreground">Losses</p>
             </Card>
             <Card className="p-3 bg-secondary/50 border-border text-center">
-              <p className="text-2xl font-bold text-white">{displayProfile.totalEarnings.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-white">{(displayProfile.totalEarnings || 0).toFixed(2)}</p>
               <p className="text-xs text-muted-foreground">SOL Won</p>
             </Card>
           </div>
@@ -252,7 +252,7 @@ export function ProfileModal({ open, onOpenChange, viewProfile, isOwnProfile = t
               <Trophy className="w-4 h-4" />
               Recent Matches
             </h4>
-            {displayProfile.matchHistory.length > 0 ? (
+            {displayProfile.matchHistory && displayProfile.matchHistory.length > 0 ? (
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {displayProfile.matchHistory.slice(0, 5).map((match) => (
                   <div key={match.id} className="flex items-center justify-between p-2 bg-secondary/30 rounded-lg">
@@ -281,6 +281,22 @@ export function ProfileModal({ open, onOpenChange, viewProfile, isOwnProfile = t
               </div>
             )}
           </div>
+
+          {/* Withdraw Button */}
+          {canEdit && (
+            <div className="relative group">
+              <Button
+                variant="outline"
+                className="w-full border-border bg-secondary/50 hover:bg-secondary/70 transition-colors"
+                disabled
+              >
+                Withdraw
+              </Button>
+              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 backdrop-blur-sm bg-black/40 rounded-md flex items-center justify-center">
+                <span className="text-sm font-medium text-white">Currently unavailable</span>
+              </div>
+            </div>
+          )}
 
           {/* Save/Cancel Buttons */}
           {isEditing && (
