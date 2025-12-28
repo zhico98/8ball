@@ -46,7 +46,7 @@ export function HeroSection() {
       const realStats = await gameService.getPlatformStats()
 
       setStats({
-        online: Math.floor(Math.max(50, realStats.online + Math.floor(Math.random() * 15) + 40)),
+        online: Math.floor(Math.max(50, Math.min(84, realStats.online + Math.floor(Math.random() * 15) + 40))),
         activeMatches: realStats.activeMatches,
         totalWon: 0,
         totalPlayers: calculateTotalPlayers(),
@@ -62,7 +62,7 @@ export function HeroSection() {
         const onlineDelta = Math.floor(Math.random() * 7) - 3
 
         return {
-          online: Math.floor(Math.max(50, Math.min(120, (realStats.online + prev.online + onlineDelta) / 2 + 40))),
+          online: Math.floor(Math.max(50, Math.min(84, (realStats.online + prev.online + onlineDelta) / 2 + 40))),
           activeMatches: realStats.activeMatches,
           totalWon: 0,
           totalPlayers: calculateTotalPlayers(),
