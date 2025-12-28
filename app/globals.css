@@ -116,6 +116,22 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Added custom blur-out animation for disappearing matches */
+@keyframes blur-out {
+  from {
+    opacity: 1;
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    filter: blur(10px);
+  }
+}
+
+.blur-out {
+  animation: blur-out 1s ease-in-out forwards;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

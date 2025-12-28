@@ -48,35 +48,60 @@ const BOT_NAMES = [
   "pickypicky",
 ]
 
+const generateUserBotPool = (): string[] => {
+  return [...BOT_NAMES].sort(() => Math.random() - 0.5)
+}
+
+const getUserBotPool = (): string[] => {
+  const sessionKey = "user_bot_pool"
+  const existing = sessionStorage.getItem(sessionKey)
+
+  if (existing) {
+    return JSON.parse(existing)
+  }
+
+  const newPool = generateUserBotPool()
+  sessionStorage.setItem(sessionKey, JSON.stringify(newPool))
+  return newPool
+}
+
 class GameService {
   private botMatchTimers: Map<string, any> = new Map()
   private roomSubscriptions: Map<string, any> = new Map()
 
-  generateFakeMatches(): GameRoom[] {
-    const count = Math.floor(Math.random() * 4) + 2 // 2-5 matches
+  generateFakeMatches(currentCount = 0): GameRoom[] {
+    const availableSlots = Math.max(0, 10 - currentCount)
+    if (availableSlots === 0) {
+      console.log("[v0] Max lobbies reached, returning empty array")
+      return []
+    }
+
+    const count = Math.min(Math.floor(Math.random() * 3) + 1, availableSlots)
     const matches: GameRoom[] = []
     const usedNames: Set<string> = new Set()
+    const botPool = getUserBotPool()
 
     for (let i = 0; i < count; i++) {
-      // Get unique bot name
-      let botName: string
+      // Pick random name from pool
+      let botName = botPool[Math.floor(Math.random() * botPool.length)]
       let attempts = 0
-      do {
-        botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+
+      // Ensure no duplicates in current batch
+      while (usedNames.has(botName) && attempts < botPool.length) {
+        botName = botPool[Math.floor(Math.random() * botPool.length)]
         attempts++
-      } while (usedNames.has(botName) && attempts < 50)
+      }
 
-      if (usedNames.has(botName)) continue // Skip if couldn't find unique name
-
+      if (usedNames.has(botName)) continue
       usedNames.add(botName)
 
-      const stake = 0 // All free matches
+      const stake = 0
       const minutesAgo = Math.floor(Math.random() * 10) + 1
-      const willDisappear = Math.random() < 0.4 // 40% chance to disappear
+      const willDisappear = Math.random() < 0.6
 
       matches.push({
-        id: `fake_${Date.now()}_${i}`,
-        host_id: `bot_${i}`,
+        id: `fake_${Date.now()}_${Math.random()}`,
+        host_id: `bot_${i}_${Date.now()}`,
         host_username: botName,
         guest_id: null,
         guest_username: null,
@@ -84,10 +109,13 @@ class GameService {
         status: "waiting",
         created_at: new Date(Date.now() - minutesAgo * 60000).toISOString(),
         is_bot: true,
-        willDisappear, // Mark which ones will disappear
+        willDisappear,
       } as any)
     }
 
+    console.log(
+      `[v0] Generated ${matches.length} matches (${currentCount} existing, ${availableSlots} slots available)`,
+    )
     return matches
   }
 
@@ -131,16 +159,9 @@ class GameService {
 
     const room: GameRoom = JSON.parse(roomData)
 
-    // Only add bot if room is still waiting
     if (room.status !== "waiting") return
 
-    // Get unique bot name that's not the host
-    let botName: string
-    let attempts = 0
-    do {
-      botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
-      attempts++
-    } while (botName === room.host_username && attempts < 50)
+    const botName = this.getUniqueBotName(room.host_username)
 
     room.guest_id = `bot_${Date.now()}`
     room.guest_username = botName
@@ -151,10 +172,22 @@ class GameService {
 
     console.log("[v0] Bot added to room:", botName)
 
-    // Trigger callback if exists
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("room-updated", { detail: room }))
     }
+  }
+
+  private getUniqueBotName(excludeName?: string): string {
+    const pool = getUserBotPool()
+    let attempts = 0
+    let name = pool[Math.floor(Math.random() * pool.length)]
+
+    while (name === excludeName && attempts < pool.length) {
+      name = pool[Math.floor(Math.random() * pool.length)]
+      attempts++
+    }
+
+    return name
   }
 
   cancelBotTimer(roomId: string) {

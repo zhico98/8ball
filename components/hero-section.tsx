@@ -24,14 +24,32 @@ export function HeroSection() {
   })
 
   useEffect(() => {
+    const BASE_PLAYERS = 630
+    const MAX_PLAYERS = 1123
+    const HOURLY_INCREMENT = 2
+    const START_TIME_KEY = "billiards_start_time"
+
+    // Get or set start time
+    let startTime = localStorage.getItem(START_TIME_KEY)
+    if (!startTime) {
+      startTime = Date.now().toString()
+      localStorage.setItem(START_TIME_KEY, startTime)
+    }
+
+    const calculateTotalPlayers = () => {
+      const hoursPassed = (Date.now() - Number.parseInt(startTime!)) / (1000 * 60 * 60)
+      const increment = Math.floor(hoursPassed * HOURLY_INCREMENT)
+      return Math.min(BASE_PLAYERS + increment, MAX_PLAYERS)
+    }
+
     const loadStats = async () => {
       const realStats = await gameService.getPlatformStats()
 
       setStats({
         online: Math.floor(Math.max(50, realStats.online + Math.floor(Math.random() * 15) + 40)),
-        activeMatches: realStats.activeMatches, // Real count, no boost
-        totalWon: 0, // Fixed at 0
-        totalPlayers: Math.floor(Math.max(420, realStats.totalPlayers + 420 + Math.floor(Math.random() * 30))),
+        activeMatches: realStats.activeMatches,
+        totalWon: 0,
+        totalPlayers: calculateTotalPlayers(),
       })
     }
 
@@ -45,9 +63,9 @@ export function HeroSection() {
 
         return {
           online: Math.floor(Math.max(50, Math.min(120, (realStats.online + prev.online + onlineDelta) / 2 + 40))),
-          activeMatches: realStats.activeMatches, // Real count updated every 15s
-          totalWon: 0, // Always 0
-          totalPlayers: Math.floor(Math.max(420, realStats.totalPlayers + 420 + Math.floor(Math.random() * 8))),
+          activeMatches: realStats.activeMatches,
+          totalWon: 0,
+          totalPlayers: calculateTotalPlayers(),
         }
       })
     }, 15000)

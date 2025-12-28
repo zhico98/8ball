@@ -128,7 +128,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
   const [restoredFromMinimize, setRestoredFromMinimize] = useState(false)
 
   const [room, setRoom] = useState<any>(null)
-  const [turnTimer, setTurnTimer] = useState(30)
+  const [turnTimer, setTurnTimer] = useState(30) // Changed from 10 to 30 seconds
   const [showWarning, setShowWarning] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [showQuitDialog, setShowQuitDialog] = useState(false)
@@ -315,7 +315,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
 
   useEffect(() => {
     if (isTraining || !room || isBallMoving || gameOver) {
-      setTurnTimer(30)
+      setTurnTimer(30) // Set timer to 30 seconds
       setShowWarning(false)
       if (timerRef.current) {
         clearInterval(timerRef.current)
@@ -325,7 +325,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
     }
 
     // Start timer
-    setTurnTimer(30)
+    setTurnTimer(30) // Changed from 10 to 30 seconds
     setShowWarning(false)
 
     timerRef.current = setInterval(() => {
@@ -334,11 +334,11 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
           // Time's up - switch player
           setCurrentPlayer(currentPlayer === 1 ? 2 : 1)
           setMessage("Time's up! Turn switched.")
-          return 30
+          return 30 // Changed from 10 to 30 seconds
         }
 
-        // Show warning at 10 seconds - also show when minimized
         if (prev === 10) {
+          // Changed from 5 to 10 seconds warning
           setShowWarning(true)
           setTimeout(() => setShowWarning(false), 3000)
         }
@@ -612,7 +612,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
       const power = 10 + Math.random() * 8
       const angleVariation = (Math.random() - 0.5) * 0.15
 
-      const shootDelay = 2000 + Math.random() * 1000 // 2-3 seconds
+      const shootDelay = Math.random() * 6000 // Changed to 0-6 seconds from 2-3 seconds
       setTimeout(() => {
         setBalls((prev) =>
           prev.map((ball) => {
@@ -1273,7 +1273,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
             <div className="absolute -left-1 -top-1 w-3 h-3 bg-primary rounded-full animate-ping" />
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-primary rounded-full" />
-              <span className="text-sm font-medium text-muted-foreground">10 seconds left</span>
+              <span className="text-sm font-medium text-muted-foreground">5 seconds left</span>
             </div>
           </div>
         </div>

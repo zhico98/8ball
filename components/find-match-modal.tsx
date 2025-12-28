@@ -17,6 +17,9 @@ interface FindMatchModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+const MATCHES_STORAGE_KEY = "find_match_available_matches"
+const MAX_LOBBIES = 10
+
 export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   const { connected, connect, balance, publicKey } = useWallet()
   const router = useRouter()
@@ -28,17 +31,33 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   const [penaltyInfo, setPenaltyInfo] = useState<{ hasPenalty: boolean; remainingTime: number } | null>(null)
   const [disappearTimers, setDisappearTimers] = useState<Map<string, any>>(new Map())
   const [disappearingMatches, setDisappearingMatches] = useState<Set<string>>(new Set())
+  const [refreshTimer, setRefreshTimer] = useState<any>(null)
 
   useEffect(() => {
     if (open) {
-      loadFakeMatches()
+      const persistedMatches = sessionStorage.getItem(MATCHES_STORAGE_KEY)
+      if (persistedMatches) {
+        const matches = JSON.parse(persistedMatches)
+        const limitedMatches = matches.slice(0, MAX_LOBBIES)
+        setAvailableRooms(limitedMatches)
+      } else {
+        loadFakeMatches()
+      }
       checkPenalty()
     } else {
       disappearTimers.forEach((timer) => clearTimeout(timer))
       setDisappearTimers(new Map())
       setDisappearingMatches(new Set())
+      if (refreshTimer) clearTimeout(refreshTimer)
     }
   }, [open, publicKey])
+
+  useEffect(() => {
+    if (availableRooms.length > 0) {
+      const toStore = availableRooms.slice(0, MAX_LOBBIES)
+      sessionStorage.setItem(MATCHES_STORAGE_KEY, JSON.stringify(toStore))
+    }
+  }, [availableRooms])
 
   const checkPenalty = () => {
     if (!publicKey) {
@@ -67,8 +86,53 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
     }
   }
 
-  const loadFakeMatches = () => {
-    const fakeRooms = gameService.generateFakeMatches()
+  const restartDisappearTimers = (matches: any[]) => {
+    const newTimers = new Map()
+
+    matches.forEach((match: any) => {
+      if (match.willDisappear) {
+        const delays = [2000, 4000, 6000]
+        const delay = delays[Math.floor(Math.random() * delays.length)]
+
+        const timer = setTimeout(() => {
+          startDisappearAnimation(match.id)
+        }, delay)
+        newTimers.set(match.id, timer)
+      }
+    })
+
+    setDisappearTimers(newTimers)
+  }
+
+  const startDisappearAnimation = (matchId: string) => {
+    setDisappearingMatches((prev) => new Set(prev).add(matchId))
+
+    setTimeout(() => {
+      setAvailableRooms((prev) => prev.filter((m) => m.id !== matchId))
+      setDisappearingMatches((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(matchId)
+        return newSet
+      })
+
+      const refreshDelay = Math.floor(Math.random() * 1000) + 2000
+      const refTimer = setTimeout(() => {
+        addNewMatches()
+      }, refreshDelay)
+      setRefreshTimer(refTimer)
+    }, 1000)
+  }
+
+  const addNewMatches = () => {
+    if (availableRooms.length >= MAX_LOBBIES) {
+      return
+    }
+
+    const fakeRooms = gameService.generateFakeMatches(availableRooms.length)
+
+    if (fakeRooms.length === 0) {
+      return
+    }
 
     const transformed = fakeRooms.map((room: any) => ({
       id: room.id,
@@ -76,7 +140,7 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
         name: room.host_username,
         avatar: room.host_username.slice(0, 2).toUpperCase(),
         rank: Math.floor(Math.random() * 50) + 1,
-        wins: Math.floor(Math.random() * 30) + 5,
+        wins: Math.floor(Math.random() * 15) + 1,
       },
       stake: room.stake,
       createdAt: getTimeAgo(room.created_at),
@@ -84,28 +148,110 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       willDisappear: room.willDisappear,
     }))
 
-    setAvailableRooms(transformed.filter((m) => m.stake === 0))
+    const newMatches = transformed.filter((m) => m.stake === 0)
+    const availableSlots = MAX_LOBBIES - availableRooms.length
+    const matchesToAdd = newMatches.slice(0, availableSlots)
 
-    const newTimers = new Map()
-    transformed.forEach((match: any) => {
+    if (matchesToAdd.length === 0) {
+      return
+    }
+
+    setAvailableRooms((prev) => {
+      const combined = [...prev, ...matchesToAdd]
+      return combined.slice(0, MAX_LOBBIES)
+    })
+
+    const newTimers = new Map(disappearTimers)
+    matchesToAdd.forEach((match: any) => {
       if (match.willDisappear) {
-        const delay = Math.floor(Math.random() * 13000) + 2000 // 2-15 seconds
-        const timer = setTimeout(() => {
-          setDisappearingMatches((prev) => new Set(prev).add(match.id))
+        const delays = [2000, 4000, 6000]
+        const delay = delays[Math.floor(Math.random() * delays.length)]
 
-          setTimeout(() => {
-            setAvailableRooms((prev) => prev.filter((m) => m.id !== match.id))
-            setDisappearingMatches((prev) => {
-              const newSet = new Set(prev)
-              newSet.delete(match.id)
-              return newSet
-            })
-          }, 1000)
+        const timer = setTimeout(() => {
+          startDisappearAnimation(match.id)
         }, delay)
         newTimers.set(match.id, timer)
       }
     })
     setDisappearTimers(newTimers)
+  }
+
+  const loadFakeMatches = () => {
+    const initialCount = Math.random() < 0.7 ? 1 : 2
+    const fakeRooms = gameService.generateFakeMatches(0).slice(0, initialCount)
+
+    const transformed = fakeRooms.map((room: any) => ({
+      id: room.id,
+      player: {
+        name: room.host_username,
+        avatar: room.host_username.slice(0, 2).toUpperCase(),
+        rank: Math.floor(Math.random() * 50) + 1,
+        wins: Math.floor(Math.random() * 15) + 1,
+      },
+      stake: room.stake,
+      createdAt: getTimeAgo(room.created_at),
+      timeLeft: "5:00",
+      willDisappear: room.willDisappear,
+    }))
+
+    const initialMatches = transformed.filter((m) => m.stake === 0).slice(0, MAX_LOBBIES)
+    setAvailableRooms(initialMatches)
+
+    restartDisappearTimers(initialMatches)
+
+    scheduleGradualMatches()
+  }
+
+  const scheduleGradualMatches = () => {
+    const addMatchesLater = () => {
+      if (availableRooms.length >= MAX_LOBBIES) return
+
+      const shouldAddMultiple = Math.random() < 0.3
+      const matchCount = shouldAddMultiple ? (Math.random() < 0.5 ? 2 : 3) : 1
+
+      const newMatches = gameService.generateFakeMatches(availableRooms.length).slice(0, matchCount)
+
+      if (newMatches.length > 0) {
+        const transformed = newMatches.map((room: any) => ({
+          id: room.id,
+          player: {
+            name: room.host_username,
+            avatar: room.host_username.slice(0, 2).toUpperCase(),
+            rank: Math.floor(Math.random() * 50) + 1,
+            wins: Math.floor(Math.random() * 15) + 1,
+          },
+          stake: room.stake,
+          createdAt: getTimeAgo(room.created_at),
+          timeLeft: "5:00",
+          willDisappear: room.willDisappear,
+        }))
+
+        setAvailableRooms((prev) => {
+          const combined = [...prev, ...transformed]
+          return combined.slice(0, MAX_LOBBIES)
+        })
+
+        const newTimers = new Map(disappearTimers)
+        transformed.forEach((match: any) => {
+          if (match.willDisappear) {
+            const delays = [2000, 4000, 6000]
+            const delay = delays[Math.floor(Math.random() * delays.length)]
+
+            const timer = setTimeout(() => {
+              startDisappearAnimation(match.id)
+            }, delay)
+            newTimers.set(match.id, timer)
+          }
+        })
+        setDisappearTimers(newTimers)
+      }
+
+      const nextDelay = Math.floor(Math.random() * 5000) + 3000
+      setTimeout(addMatchesLater, nextDelay)
+    }
+
+    const initialDelay = Math.floor(Math.random() * 2000) + 3000
+    setTimeout(addMatchesLater, initialDelay)
   }
 
   const getTimeAgo = (timestamp: string) => {
@@ -121,7 +267,7 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
       return
     }
 
-    if (penaltyInfo?.hasPenalty) {
+    if (penaltyInfo?.hasPenalty || disappearingMatches.has(match.id)) {
       return
     }
 
@@ -156,9 +302,9 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
     } catch (error: any) {
       console.error("Join error:", error)
       alert(`Error: ${error.message}`)
+    } finally {
+      setJoiningRoomId(null)
     }
-
-    setJoiningRoomId(null)
   }
 
   const handleCreate = async () => {
@@ -221,7 +367,7 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   You have a 1-minute penalty for quitting a game. You can play again in{" "}
-                  <strong>{Math.ceil(penaltyInfo.remainingTime / 1000)}s</strong>
+                  <strong>{penaltyInfo.remainingTime}s</strong>
                 </AlertDescription>
               </Alert>
             )}
@@ -250,8 +396,13 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                   <Button
                     onClick={handleCreate}
                     disabled={creating || penaltyInfo?.hasPenalty}
-                    className="bg-white text-black hover:bg-white/90"
+                    className={`bg-white text-black hover:bg-white/90 ${penaltyInfo?.hasPenalty ? "blur-sm cursor-not-allowed relative" : ""}`}
                   >
+                    {penaltyInfo?.hasPenalty && (
+                      <span className="absolute inset-0 flex items-center justify-center text-xs font-bold blur-none">
+                        {penaltyInfo.remainingTime}s
+                      </span>
+                    )}
                     <Zap className="w-4 h-4 mr-2" />
                     {creating ? "Creating..." : "Create"}
                   </Button>
@@ -305,13 +456,9 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                   return (
                     <Card
                       key={match.id}
-                      className={`p-4 bg-secondary/30 border-border hover:border-white/30 transition-all duration-1000 ${
-                        isDisappearing ? "opacity-0 blur-lg" : "opacity-100 blur-0"
+                      className={`p-4 bg-secondary/30 border-border hover:border-white/30 transition-all ${
+                        isDisappearing ? "blur-out" : ""
                       }`}
-                      style={{
-                        transitionProperty: "opacity, filter",
-                        transitionTimingFunction: "ease-in-out",
-                      }}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -346,9 +493,14 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                           </div>
                           <Button
                             onClick={() => handleJoin(match)}
-                            className="bg-white text-black hover:bg-white/90"
+                            className={`bg-white text-black hover:bg-white/90 ${penaltyInfo?.hasPenalty || isDisappearing ? "blur-sm cursor-not-allowed relative" : ""}`}
                             disabled={joiningRoomId === match.id || penaltyInfo?.hasPenalty || isDisappearing}
                           >
+                            {penaltyInfo?.hasPenalty && (
+                              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold blur-none">
+                                {penaltyInfo.remainingTime}s
+                              </span>
+                            )}
                             <Zap className="w-4 h-4 mr-2" />
                             {joiningRoomId === match.id ? "Joining..." : "Join"}
                           </Button>
