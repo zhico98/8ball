@@ -105,9 +105,11 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
   }
 
   const startDisappearAnimation = (matchId: string) => {
+    console.log("[v0] Starting disappear animation for:", matchId)
     setDisappearingMatches((prev) => new Set(prev).add(matchId))
 
     setTimeout(() => {
+      console.log("[v0] Removing match after animation:", matchId)
       setAvailableRooms((prev) => prev.filter((m) => m.id !== matchId))
       setDisappearingMatches((prev) => {
         const newSet = new Set(prev)
@@ -115,12 +117,13 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
         return newSet
       })
 
+      // Add new matches after removal
       const refreshDelay = Math.floor(Math.random() * 1000) + 2000
       const refTimer = setTimeout(() => {
         addNewMatches()
       }, refreshDelay)
       setRefreshTimer(refTimer)
-    }, 1000)
+    }, 1500) // Increased to match animation duration
   }
 
   const addNewMatches = () => {
@@ -456,9 +459,12 @@ export function FindMatchModal({ open, onOpenChange }: FindMatchModalProps) {
                   return (
                     <Card
                       key={match.id}
-                      className={`p-4 bg-secondary/30 border-border hover:border-white/30 transition-all ${
-                        isDisappearing ? "blur-out" : ""
+                      className={`p-4 bg-secondary/30 border-border hover:border-white/30 transition-all duration-1000 ${
+                        isDisappearing ? "opacity-0 blur-lg scale-95" : "opacity-100 blur-0 scale-100"
                       }`}
+                      style={{
+                        transition: isDisappearing ? "all 1.5s ease-out" : "all 0.3s ease-in-out",
+                      }}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">

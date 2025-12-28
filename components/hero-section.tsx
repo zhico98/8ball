@@ -29,11 +29,25 @@ export function HeroSection() {
     const HOURLY_INCREMENT = 2
     const START_TIME_KEY = "billiards_start_time"
 
-    // Get or set start time
+    const ONLINE_BASE = 11
+    const ONLINE_MAX = 84
+    const ONLINE_INCREMENT = 2
+    const ONLINE_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
+
+    const ONLINE_START_TIME_KEY = "billiards_online_start_time"
+
+    // Get or set start time for total players
     let startTime = localStorage.getItem(START_TIME_KEY)
     if (!startTime) {
       startTime = Date.now().toString()
       localStorage.setItem(START_TIME_KEY, startTime)
+    }
+
+    // Get or set start time for online players
+    let onlineStartTime = localStorage.getItem(ONLINE_START_TIME_KEY)
+    if (!onlineStartTime) {
+      onlineStartTime = Date.now().toString()
+      localStorage.setItem(ONLINE_START_TIME_KEY, onlineStartTime)
     }
 
     const calculateTotalPlayers = () => {
@@ -42,11 +56,17 @@ export function HeroSection() {
       return Math.min(BASE_PLAYERS + increment, MAX_PLAYERS)
     }
 
+    const calculateOnlinePlayers = () => {
+      const intervalsPassed = Math.floor((Date.now() - Number.parseInt(onlineStartTime!)) / ONLINE_INTERVAL_MS)
+      const increment = intervalsPassed * ONLINE_INCREMENT
+      return Math.min(ONLINE_BASE + increment, ONLINE_MAX)
+    }
+
     const loadStats = async () => {
       const realStats = await gameService.getPlatformStats()
 
       setStats({
-        online: Math.floor(Math.max(50, Math.min(84, realStats.online + Math.floor(Math.random() * 15) + 40))),
+        online: calculateOnlinePlayers(),
         activeMatches: realStats.activeMatches,
         totalWon: 0,
         totalPlayers: calculateTotalPlayers(),
@@ -58,17 +78,13 @@ export function HeroSection() {
     const interval = setInterval(async () => {
       const realStats = await gameService.getPlatformStats()
 
-      setStats((prev) => {
-        const onlineDelta = Math.floor(Math.random() * 7) - 3
-
-        return {
-          online: Math.floor(Math.max(50, Math.min(84, (realStats.online + prev.online + onlineDelta) / 2 + 40))),
-          activeMatches: realStats.activeMatches,
-          totalWon: 0,
-          totalPlayers: calculateTotalPlayers(),
-        }
-      })
-    }, 15000)
+      setStats((prev) => ({
+        online: calculateOnlinePlayers(),
+        activeMatches: realStats.activeMatches,
+        totalWon: 0,
+        totalPlayers: calculateTotalPlayers(),
+      }))
+    }, 60000) // Update every minute
 
     return () => clearInterval(interval)
   }, [])

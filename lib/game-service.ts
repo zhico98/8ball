@@ -49,19 +49,31 @@ const BOT_NAMES = [
 ]
 
 const generateUserBotPool = (): string[] => {
-  return [...BOT_NAMES].sort(() => Math.random() - 0.5)
+  // Add timestamp to make it truly unique per session
+  const sessionSeed = Date.now() + Math.random()
+  const shuffled = [...BOT_NAMES].sort(() => Math.random() - 0.5)
+  return shuffled
 }
 
 const getUserBotPool = (): string[] => {
   const sessionKey = "user_bot_pool"
-  const existing = sessionStorage.getItem(sessionKey)
+  const sessionTimestampKey = "user_bot_pool_timestamp"
 
-  if (existing) {
-    return JSON.parse(existing)
+  const existing = sessionStorage.getItem(sessionKey)
+  const existingTimestamp = sessionStorage.getItem(sessionTimestampKey)
+
+  if (existing && existingTimestamp) {
+    const age = Date.now() - Number.parseInt(existingTimestamp)
+    if (age < 60 * 60 * 1000) {
+      // Less than 1 hour
+      return JSON.parse(existing)
+    }
   }
 
+  // Generate new pool with fresh shuffle
   const newPool = generateUserBotPool()
   sessionStorage.setItem(sessionKey, JSON.stringify(newPool))
+  sessionStorage.setItem(sessionTimestampKey, Date.now().toString())
   return newPool
 }
 
@@ -179,15 +191,15 @@ class GameService {
 
   private getUniqueBotName(excludeName?: string): string {
     const pool = getUserBotPool()
-    let attempts = 0
-    let name = pool[Math.floor(Math.random() * pool.length)]
 
-    while (name === excludeName && attempts < pool.length) {
-      name = pool[Math.floor(Math.random() * pool.length)]
-      attempts++
+    const availableNames = excludeName ? pool.filter((name) => name !== excludeName) : pool
+
+    if (availableNames.length === 0) {
+      return pool[0] // Fallback
     }
 
-    return name
+    const randomIndex = Math.floor(Math.random() * availableNames.length)
+    return availableNames[randomIndex]
   }
 
   cancelBotTimer(roomId: string) {
