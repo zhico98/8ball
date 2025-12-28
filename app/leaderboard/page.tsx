@@ -39,7 +39,7 @@ export default function LeaderboardPage() {
       setError(null)
     } catch (err) {
       console.error("Failed to load leaderboard:", err)
-      setError("Unable to connect to database. Please add Supabase environment variables in Vercel Settings.")
+      setError("No players yet")
       setPlayers([])
     } finally {
       setLoading(false)
@@ -87,12 +87,16 @@ export default function LeaderboardPage() {
                 <Loader2 className="w-8 h-8 animate-spin text-white" />
               </div>
             ) : error ? (
-              <Card className="p-12 text-center">
-                <p className="text-muted-foreground mb-2">{error}</p>
+              <Card className="p-12 text-center backdrop-blur-sm">
+                <div className="blur-sm">
+                  <p className="text-muted-foreground mb-2">{error}</p>
+                </div>
               </Card>
             ) : players.length === 0 ? (
-              <Card className="p-12 text-center">
-                <p className="text-muted-foreground">No players yet. Be the first to play!</p>
+              <Card className="p-12 text-center backdrop-blur-sm">
+                <div className="blur-sm">
+                  <p className="text-muted-foreground">No players yet. Be the first to play!</p>
+                </div>
               </Card>
             ) : (
               <>
@@ -158,10 +162,12 @@ export default function LeaderboardPage() {
 
           {["monthly", "weekly", "daily"].map((period) => (
             <TabsContent key={period} value={period}>
-              <Card className="p-12 text-center">
-                <p className="text-muted-foreground">
-                  {period.charAt(0).toUpperCase() + period.slice(1)} leaderboard data coming soon
-                </p>
+              <Card className="p-12 text-center backdrop-blur-sm">
+                <div className="blur-sm">
+                  <p className="text-muted-foreground">
+                    {period.charAt(0).toUpperCase() + period.slice(1)} leaderboard data coming soon
+                  </p>
+                </div>
               </Card>
             </TabsContent>
           ))}
