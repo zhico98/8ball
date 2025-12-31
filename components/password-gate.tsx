@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 
 const CORRECT_PASSWORD = "bilardofun1999!"
 
@@ -11,6 +11,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState("")
   const [showCursor, setShowCursor] = useState(true)
   const [error, setError] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Check if already authenticated
   useEffect(() => {
@@ -46,12 +47,19 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     setError(false)
   }
 
+  const handleContainerClick = () => {
+    inputRef.current?.focus()
+  }
+
   if (isAuthenticated) {
     return <>{children}</>
   }
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center font-mono">
+    <div
+      className="fixed inset-0 bg-black flex items-center justify-center font-mono cursor-text"
+      onClick={handleContainerClick}
+    >
       <div className="px-4">
         <form onSubmit={handleSubmit}>
           <div className="flex items-center gap-2 text-xs">
@@ -74,6 +82,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
 
           {/* Hidden input that captures the actual typing */}
           <input
+            ref={inputRef}
             type="text"
             value={password}
             onChange={handleChange}
