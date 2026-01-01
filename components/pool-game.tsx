@@ -28,6 +28,11 @@ const CUSHION_BOUNCE = 0.75
 const CUSHION_MARGIN = 40
 const MAX_POWER = 22
 
+// Constants for cue ball placement
+const TABLE_MARGIN = CUSHION_MARGIN // Use CUSHION_MARGIN for table boundaries
+const CANVAS_WIDTH = TABLE_WIDTH
+const CANVAS_HEIGHT = TABLE_HEIGHT
+
 const BALL_COLORS: Record<number, { gradient: string[]; stripe: boolean }> = {
   0: { gradient: ["#FFFFFF", "#F8F8F8", "#E8E8E8"], stripe: false }, // Cue ball
   1: { gradient: ["#FFD700", "#FFC000", "#E6AC00"], stripe: false }, // Yellow
@@ -237,6 +242,53 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
     }
   }, [restoredFromMinimize, balls])
 
+  const isBotOpponent = room?.is_bot && isHost
+  useEffect(() => {
+    const shouldBotPlace = (isTraining || isBotOpponent) && currentPlayer === 2 && cueBallPlacement
+
+    if (shouldBotPlace && !isBallMoving && !gameOver) {
+      console.log("[v0] Bot placing cue ball...")
+
+      // Bot places ball in a random position in the left third of the table
+      const delay = 500 + Math.random() * 1000 // 0.5-1.5 seconds
+
+      setTimeout(() => {
+        const x = TABLE_MARGIN + 50 + Math.random() * 200
+        const y = TABLE_MARGIN + 50 + Math.random() * (CANVAS_HEIGHT - TABLE_MARGIN * 2 - 100)
+
+        setBalls((prev) =>
+          prev.map((ball) => {
+            if (ball.id === 0) {
+              return {
+                ...ball,
+                x,
+                y,
+                pocketed: false,
+                vx: 0,
+                vy: 0,
+              }
+            }
+            return ball
+          }),
+        )
+
+        setCueBallPlacement(false)
+        setMessage("Bot placed the cue ball")
+        console.log("[v0] Bot placed cue ball at", x, y)
+
+        setTimeout(() => {
+          setBotThinking(true)
+          setMessage("Bot is thinking...")
+
+          setTimeout(() => {
+            setBotThinking(false)
+            setBotShouldPlay(true)
+          }, 800)
+        }, 500)
+      }, delay)
+    }
+  }, [currentPlayer, cueBallPlacement, isBallMoving, gameOver, isTraining, room, isHost, isBotOpponent])
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isBallMoving || gameOver || currentPlayer !== 1 || isMinimized) return
 
@@ -245,6 +297,36 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
 
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+
+    if (cueBallPlacement) {
+      // Check if click is within table bounds
+      if (
+        x >= TABLE_MARGIN + BALL_RADIUS &&
+        x <= CANVAS_WIDTH - TABLE_MARGIN - BALL_RADIUS &&
+        y >= TABLE_MARGIN + BALL_RADIUS &&
+        y <= CANVAS_HEIGHT - TABLE_MARGIN - BALL_RADIUS
+      ) {
+        // Place the cue ball at click position
+        setBalls((prev) =>
+          prev.map((ball) => {
+            if (ball.id === 0) {
+              return {
+                ...ball,
+                x,
+                y,
+                pocketed: false,
+                vx: 0,
+                vy: 0,
+              }
+            }
+            return ball
+          }),
+        )
+        setCueBallPlacement(false)
+        setMessage("Cue ball placed. Your turn!")
+      }
+      return
+    }
 
     const cueBall = ballsRef.current.find((b) => b.id === 0 && !b.pocketed)
     if (!cueBall) return
@@ -684,7 +766,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
 
                 if (ball.id === 0) {
                   setCueBallPlacement(true)
-                  setMessage("Scratch! Place the cue ball")
+                  setMessage("🎱 Scratch! Place the cue ball on the table")
                 } else if (ball.id === 8) {
                   const playerPocketed = state.currentPlayer === 1 ? state.player1Pocketed : state.player2Pocketed
                   const neededCount = 7

@@ -77,6 +77,17 @@ const getUserBotPool = (): string[] => {
   return newPool
 }
 
+const getRandomBotName = (usedNames: Set<string> = new Set()): string => {
+  const availableNames = BOT_NAMES.filter((name) => !usedNames.has(name))
+
+  if (availableNames.length === 0) {
+    // If all names used, pick any random one
+    return BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+  }
+
+  return availableNames[Math.floor(Math.random() * availableNames.length)]
+}
+
 class GameService {
   private botMatchTimers: Map<string, any> = new Map()
   private roomSubscriptions: Map<string, any> = new Map()
@@ -94,17 +105,7 @@ class GameService {
     const botPool = getUserBotPool()
 
     for (let i = 0; i < count; i++) {
-      // Pick random name from pool
-      let botName = botPool[Math.floor(Math.random() * botPool.length)]
-      let attempts = 0
-
-      // Ensure no duplicates in current batch
-      while (usedNames.has(botName) && attempts < botPool.length) {
-        botName = botPool[Math.floor(Math.random() * botPool.length)]
-        attempts++
-      }
-
-      if (usedNames.has(botName)) continue
+      const botName = getRandomBotName(usedNames)
       usedNames.add(botName)
 
       const stake = 0
@@ -190,16 +191,13 @@ class GameService {
   }
 
   private getUniqueBotName(excludeName?: string): string {
-    const pool = getUserBotPool()
-
-    const availableNames = excludeName ? pool.filter((name) => name !== excludeName) : pool
+    const availableNames = excludeName ? BOT_NAMES.filter((name) => name !== excludeName) : BOT_NAMES
 
     if (availableNames.length === 0) {
-      return pool[0] // Fallback
+      return BOT_NAMES[0]
     }
 
-    const randomIndex = Math.floor(Math.random() * availableNames.length)
-    return availableNames[randomIndex]
+    return availableNames[Math.floor(Math.random() * availableNames.length)]
   }
 
   cancelBotTimer(roomId: string) {

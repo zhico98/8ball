@@ -5,7 +5,6 @@ import { Analytics } from "@vercel/analytics/next"
 import { WalletProvider } from "@/lib/wallet-context"
 import { InventoryProvider } from "@/lib/inventory-context"
 import { GameWidget } from "@/components/game-widget"
-import { PasswordGate } from "@/components/password-gate"
 import "./globals.css"
 
 const _inter = Inter({ subsets: ["latin"] })
@@ -29,12 +28,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="font-sans antialiased">
-        <PasswordGate>
-          <WalletProvider>
-            <InventoryProvider>{children}</InventoryProvider>
-          </WalletProvider>
-          <GameWidget />
-        </PasswordGate>
+        <WalletProvider>
+          <InventoryProvider>{children}</InventoryProvider>
+        </WalletProvider>
+        <GameWidget />
         <Analytics />
       </body>
     </html>
