@@ -569,7 +569,7 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
     ctx.fill()
   }
 
-  const initializeBalls = useCallback(() => {
+  const createInitialBalls = useCallback(() => {
     if (botTimeoutRef.current) {
       clearTimeout(botTimeoutRef.current)
     }
@@ -604,7 +604,11 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
         ballIndex++
       }
     }
+    return newBalls
+  }, [])
 
+  const initializeBalls = useCallback(() => {
+    const newBalls = createInitialBalls()
     setBalls(newBalls)
     ballsRef.current = newBalls
     setCurrentPlayer(1)
@@ -623,16 +627,34 @@ export function PoolGame({ isTraining = false, roomId, isHost = false, playerPro
     setTurnTimer(30)
     setShowWarning(false)
     setIsMinimized(false) // Ensure game is not minimized on reset
-  }, [])
+  }, [createInitialBalls])
 
   // Function to reset the game
   const resetGame = useCallback(() => {
-    initializeBalls()
-    // If in multiplayer, might need to signal other players or re-initialize room state
-    if (roomId && !isTraining) {
-      // Example: gameService.resetRoom(roomId)
+    const randomStart = Math.random() < 0.5 ? 1 : 2
+    const newBalls = createInitialBalls()
+    setBalls(newBalls)
+    ballsRef.current = newBalls
+    setCurrentPlayer(randomStart)
+    setMessage(randomStart === 1 ? "Your Turn!" : "Opponent's Turn!")
+    setGameOver(false)
+    setWinner(null)
+    setCueBallPlacement(false)
+    setPlayer1Type(null)
+    setPlayer2Type(null)
+    setPlayer1Pocketed([])
+    setPlayer2Pocketed([])
+    setHasShot(false)
+    setBotThinking(false)
+    setBotShouldPlay(false) // Ensure botShouldPlay is reset
+    setPocketedOwnBall(false)
+    setTurnTimer(30)
+    setShowWarning(false)
+    setIsMinimized(false) // Ensure game is not minimized on reset
+    if (randomStart === 2 && (isTraining || (room?.is_bot && isHost))) {
+      setBotShouldPlay(true)
     }
-  }, [initializeBalls, roomId, isTraining])
+  }, [createInitialBalls, isTraining, room, isHost])
 
   useEffect(() => {
     initializeBalls()
